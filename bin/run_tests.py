@@ -1,13 +1,18 @@
 #! /usr/bin/env python3
 import argparse
+import logging
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from astropy import units as u
-from mcmc_dynamics.analysis import model, constant
-from mcmc_dynamics.utils.plots import profile_plot
-from mcmc_dynamics.utils import radial_profile
-from mcmc_dynamics.utils.files import data_reader
+from astropy.table import QTable
+from mcmc_dynamics.analysis import ModelFit, ConstantFit
+from mcmc_dynamics.utils.plots import ProfilePlot
+from mcmc_dynamics.utils.files import DataReader
+
+
+logger = logging.getLogger(__name__)
+
 
 if __name__ == "__main__":
 
@@ -20,6 +25,9 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    # logger.setLevel(logging.INFO)
+    logging.basicConfig(level=logging.INFO)
+    logger.info('Creating input data ...')
     np.random.seed(args.seed)
 
     v_sys = 0*u.km/u.s
@@ -29,7 +37,7 @@ if __name__ == "__main__":
     sigma_max = (5. + 10.*np.random.random())*u.km/u.s
     v_max = args.vsigma*sigma_max
 
-    data = data_reader.DataReader({
+    data = DataReader({
         'r': r_peak*args.rmax*np.random.uniform(0, 1, size=args.nstars)**0.9,
         'theta': u.rad*np.random.uniform(0, 2.*np.pi, size=args.nstars),
         'v': np.zeros((args.nstars,), dtype=np.float64)*u.km/u.s,
@@ -47,74 +55,99 @@ if __name__ == "__main__":
 
     data.data['v'] = v_los
     data.data['verr'] = uncertainties
-    print(data.data)
+    logger.info(data.data)
 
-    rp = radial_profile.RadialProfile(data.data['r'])
-    bin_number = rp(nstars=50, dlogr=0.1)
+    logger.info('Analysing kinematics in radial bins ...')
+    data.make_radial_bins(nstars=50, dlogr=0.1)
 
-    radial_profile = []
+    initials = [{'name': 'v_sys', 'init': v_sys, 'fixed': True},
+                {'name': 'sigma_max', 'init': sigma_max, 'fixed': False},
+                {'name': 'v_max', 'init': v_max, 'fixed': False},
+                {'name': 'theta_0', 'init': theta_0, 'fixed': False}]
 
-    for i in range(bin_number.max() + 1):
+    radial_profile = QTable()
+    for column in ['r mean', 'r min', 'r max']:
+        radial_profile[column] = QTable.Column([], unit=data.data['r'].unit)
+    for parameter in initials:
+        if not parameter['fixed']:
+            for column in ['median', 'high', 'low']:
+                radial_profile['{0} {1}'.format(parameter['name'], column)] = QTable.Column(
+                    [], unit=parameter['init'].unit)
 
-        in_bin = (bin_number == i)
+    for i in range(data.data['bin'].max() + 1):
+        data_i = data.fetch_radial_bin(i)
 
-        results_i = {'logr mean': np.log10(data.data['r'][in_bin].mean()),
-                     'logr min': np.log10(data.data['r'][in_bin].min()),
-                     'logr max': np.log10(data.data['r'][in_bin].max())}
+        results_i = [data_i.data['r'].mean(), data_i.data['r'].min(), data_i.data['r'].max()]
 
-        data_i = data_reader.DataReader(data.data[in_bin])
+        cf = ConstantFit(data_i, initials=initials, background=None)
+        sampler = cf(n_walkers=100, n_steps=100)
 
-        cf = constant.ConstantFit(data_i, fixed={'v_sys': v_sys.value})
-        sampler = cf()
-        results = cf.compute_bestfit_values(sampler=sampler, n_burn=100)
+        results = cf.compute_bestfit_values(chain=sampler.chain, n_burn=50)
 
-        for k, parameter in enumerate(cf.fitted_parameters):
-            median, high, low = results[k]
-            results_i['{0} low'.format(parameter)] = low
-            results_i['{0} median'.format(parameter)] = median
-            results_i['{0} high'.format(parameter)] = high
+        k = 0
+        for parameter in cf.initials:
+            if parameter['fixed']:
+                continue
+            name = parameter['name']
+            results_i.extend([results.loc['median'][name], results.loc['uperr'][name], results.loc['loerr'][name]])
+            k += 1
 
-        radial_profile.append(results_i)
+        radial_profile.add_row(results_i)
 
-    radial_profile = pd.DataFrame(radial_profile)
+    radial_profile = QTable(radial_profile)
 
-    mf = model.ModelFit(data, fixed={'v_sys': v_sys.value})
+    logger.info('Fitting radial model to data ...')
+
+    initials = [{'name': 'v_sys', 'init': v_sys, 'fixed': False},
+                {'name': 'sigma_max', 'init': sigma_max, 'fixed': False},
+                {'name': 'a', 'init': a, 'fixed': False},
+                {'name': 'v_max', 'init': v_max, 'fixed': False},
+                {'name': 'r_peak', 'init': r_peak, 'fixed': False},
+                {'name': 'theta_0', 'init': theta_0, 'fixed': False}]
+
+    mf = ModelFit(data=data, initials=initials)
     sampler = mf()
-    # mf.create_triangle_plot(sampler, n_burn=100, true_values=[v_sys, v_max, r_peak, theta_0, sigma_max, a])
-    model = mf.create_profiles(sampler=sampler, n_burn=100)
+
+    _ = mf.plot_chain(chain=sampler.chain, lnprob=sampler.lnprobability)
+
+    radial_model = mf.create_profiles(sampler.chain, n_burn=50)
+
+    logger.info('Plotting the results ...')
 
     r_true = np.logspace(-1, 2, 50)*u.arcsec
     v_rot_true = 2. * (v_max / r_peak) * r_true / (1. + (r_true / r_peak) ** 2)
     sigma_true = sigma_max / (1. + r_true ** 2 / a ** 2) ** 0.25
 
-    pp = profile_plot.ProfilePlot()
+    pp = ProfilePlot()
 
-    x = radial_profile["logr mean"]
-    xerr = [radial_profile["logr mean"] - radial_profile["logr min"],
-            radial_profile["logr max"] - radial_profile["logr mean"]]
+    x = radial_profile["r mean"]
+    xerr = np.array([radial_profile["r mean"] - radial_profile["r min"],
+                     radial_profile["r max"] - radial_profile["r mean"]]) * x.unit
 
     vrot = radial_profile['v_max median']
-    vrot_err = [radial_profile['v_max low'], radial_profile['v_max high']]
-    pp.add_rotation_profile(x, vrot, xerr=xerr, yerr=vrot_err, c='r', mec='r', mfc='r', marker='d')
-    pp.add_rotation_profile(np.log10(r_true.value), v_rot_true, ls='-', lw=1.5, c='k', marker='None')
+    vrot_err = np.array([radial_profile['v_max low'], radial_profile['v_max high']]) * vrot.unit
+    pp.add_rotation_profile(x, vrot, xerr=xerr, yerr=vrot_err)
+    pp.ax_rot.axhline(y=0.0, lw=1.5, c='0.5')
 
-    pp.add_rotation_profile(np.log10(model['r']), model['v_rot'],
-                            yerr=[model['v_rot'] - model['v_rot_lower_1s'],
-                                  model['v_rot_upper_1s'] - model['v_rot']],
-                            ls='-', lw=1.6, c='r', alpha=0.5, marker='None', fill_between=True)
+    pp.add_rotation_profile(radial_model['r'], radial_model['v_rot'],
+                            yerr=[radial_model['v_rot'] - radial_model['v_rot_lower_1s'],
+                                  radial_model['v_rot_upper_1s'] - radial_model['v_rot']],
+                            ls='-', lw=1.6, c='g', alpha=0.5, marker='None', fill_between=True)
 
     theta = radial_profile['theta_0 median']
-    theta_err = [radial_profile['theta_0 low'], radial_profile['theta_0 high']]
-    pp.add_theta_profile(x, theta, yerr=theta_err, marker='d', c='r', mfc='r', mec='r')
+    theta_err = np.array([radial_profile['theta_0 low'], radial_profile['theta_0 high']]) * theta.unit
+    pp.add_theta_profile(x, theta, yerr=theta_err)
 
     sigma = radial_profile['sigma_max median']
-    sigma_err = [radial_profile['sigma_max low'], radial_profile['sigma_max high']]
-    pp.add_dispersion_profile(x, sigma, xerr=xerr, yerr=sigma_err, c='r', mec='r', mfc='r', marker='d')
-    pp.add_dispersion_profile(np.log10(r_true.value), sigma_true, ls='-', lw=1.5, c='k', marker='None')
+    sigma_err = np.array([radial_profile['sigma_max low'], radial_profile['sigma_max high']]) * sigma.unit
+    pp.add_dispersion_profile(x, sigma, xerr=xerr, yerr=sigma_err)
 
-    pp.add_dispersion_profile(np.log10(model['r']), model['sigma'],
-                              yerr=[model['sigma'] - model['sigma_lower_1s'],
-                              model['sigma_upper_1s'] - model['sigma']],
-                              ls='-', lw=1.6, c='r', alpha=0.5, marker='None', fill_between=True)
+    pp.add_dispersion_profile(radial_model['r'], radial_model['sigma'],
+                              yerr=[radial_model['sigma'] - radial_model['sigma_lower_1s'],
+                                    radial_model['sigma_upper_1s'] - radial_model['sigma']],
+                              ls='-', lw=1.6, c='g', alpha=0.5, marker='None', fill_between=True)
+
+    pp.add_rotation_profile(r_true.value, v_rot_true, ls='-', lw=1.5, c='k', marker='None')
+    pp.add_dispersion_profile(r_true.value, sigma_true, ls='-', lw=1.5, c='k', marker='None')
 
     plt.show()
