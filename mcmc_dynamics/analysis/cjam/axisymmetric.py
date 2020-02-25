@@ -41,7 +41,8 @@ def run_cjam(parameters):
 
     global gx, gy, gmge_mass, gmge_lum
     model = cjam.axisymmetric(gx, gy, gmge_lum, gmge_mass, parameters['d'], beta=parameters['beta'],
-                              kappa=parameters['kappa'], mscale=parameters['mlr'].value, incl=parameters['incl'])
+                              kappa=parameters['kappa'], mscale=parameters['mlr'].value, incl=parameters['incl'],
+                              mbh=parameters['mbh'])
 
     # get velocity and dispersion at every data point
     # note that astropy Quanitities cannot be pickled, so multiprocessing only works when the values are returned
@@ -88,7 +89,8 @@ class Axisymmetric(Runner):
         if self._parameters is None:
             self._parameters = super(Axisymmetric, self).parameters
             self._parameters.update({'d': u.kpc, 'mlr': u.dimensionless_unscaled, 'barq': u.dimensionless_unscaled,
-                                     'kappa': u.dimensionless_unscaled, 'beta': u.dimensionless_unscaled})
+                                     'kappa': u.dimensionless_unscaled, 'beta': u.dimensionless_unscaled,
+                                     'mbh': u.Msun})
         return self._parameters
 
     @property
@@ -106,6 +108,8 @@ class Axisymmetric(Runner):
                 labels[row['name']] = r'$\kappa$'
             elif row['name'] == 'beta':
                 labels[row['name']] = r'$\beta$'
+            elif row['name'] == 'mbh':
+                labels[row['name']] = r'$M_{\rm BH}$'
             else:
                 labels[row['name']] = r'${0}/${1}'.format(row['name'], latex_string)
         return labels
@@ -119,8 +123,11 @@ class Axisymmetric(Runner):
                 return -np.inf
             elif parameter == 'barq' and (value <= 0.2 or value > self.median_q):
                 return -np.inf
-            if parameter == 'kappa' and np.greater(abs(value), 10).all():
+            elif parameter == 'kappa' and np.greater(abs(value), 10).all():
                 return -np.inf
+            elif parameter == 'mbh' and value < 0:
+                return -np.inf
+
         return super(Axisymmetric, self).lnprior(values=values)
 
     def lnlike(self, values):
@@ -142,7 +149,7 @@ class Axisymmetric(Runner):
         try:
             model = cjam.axisymmetric(self.x, self.y, self.mge_lum.data, self.mge_mass.data, current_parameters['d'],
                                       beta=current_parameters['beta'], kappa=current_parameters['kappa'],
-                                      mscale=current_parameters['mlr'], incl=incl)
+                                      mscale=current_parameters['mlr'], incl=incl, mbh=current_parameters['mbh'])
         except ValueError:
             return -np.inf
 
