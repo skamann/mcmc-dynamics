@@ -423,6 +423,8 @@ class Runner(object):
                 if prefix is not None:
                     self.save_current_status(sampler, prefix=prefix)
                 if plot:
+                    for ax in fig.axes:
+                        ax.cla()
                     self.plot_chain(sampler.chain, true_values=true_values, figure=fig,
                                     filename='{0}_chains.png'.format(prefix) if prefix is not None else None)
             logger.info(output)
