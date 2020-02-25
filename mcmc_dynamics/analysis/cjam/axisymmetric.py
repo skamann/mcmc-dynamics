@@ -139,9 +139,12 @@ class Axisymmetric(Runner):
             (self.median_q**2 - current_parameters['barq']**2)/(1. - current_parameters['barq']**2)))
 
         # calculate JAM model for current parameters
-        model = cjam.axisymmetric(self.x, self.y, self.mge_lum.data, self.mge_mass.data, current_parameters['d'],
-                                  beta=current_parameters['beta'], kappa=current_parameters['kappa'],
-                                  mscale=current_parameters['mlr'], incl=incl)
+        try:
+            model = cjam.axisymmetric(self.x, self.y, self.mge_lum.data, self.mge_mass.data, current_parameters['d'],
+                                      beta=current_parameters['beta'], kappa=current_parameters['kappa'],
+                                      mscale=current_parameters['mlr'], incl=incl)
+        except ValueError:
+            return -np.inf
 
         logger.debug('CJAM call succeeded for {0}.'.format(unique_id))
 
