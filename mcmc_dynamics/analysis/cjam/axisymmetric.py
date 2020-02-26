@@ -90,7 +90,7 @@ class Axisymmetric(Runner):
             self._parameters = super(Axisymmetric, self).parameters
             self._parameters.update({'d': u.kpc, 'mlr': u.dimensionless_unscaled, 'barq': u.dimensionless_unscaled,
                                      'kappa': u.dimensionless_unscaled, 'beta': u.dimensionless_unscaled,
-                                     'mbh': u.Msun})
+                                     'mbh': u.Msun, 'delta_x': u.arcsec, 'delta_y': u.arcsec, 'theta_0': u.rad})
         return self._parameters
 
     @property
@@ -110,12 +110,17 @@ class Axisymmetric(Runner):
                 labels[row['name']] = r'$\beta$'
             elif row['name'] == 'mbh':
                 labels[row['name']] = r'$M_{\rm BH}$'
+            elif row['name'] == 'delta_x':
+                labels[row['name']] = r'$\Delta x$'
+            elif row['name'] == 'delta_y':
+                labels[row['name']] = r'$\Delta y$'
+            elif row['name'] == 'theta_0':
+                labels[row['name']] = r'$\theta_{{\rm 0}}/${0}'.format(latex_string)
             else:
                 labels[row['name']] = r'${0}/${1}'.format(row['name'], latex_string)
         return labels
 
     def lnprior(self, values):
-
         for parameter, value in self.fetch_parameters(values).items():
             if parameter == 'd' and value <= 0.5*u.kpc:
                 return -np.inf
@@ -125,7 +130,11 @@ class Axisymmetric(Runner):
                 return -np.inf
             elif parameter == 'kappa' and np.greater(abs(value), 10).all():
                 return -np.inf
-            elif parameter == 'mbh' and value < 0:
+            elif parameter == 'mbh' and value < 0*u.Msun:
+                return -np.inf
+            elif (parameter == 'delta_x' or parameter == 'delta_y') and abs(value) > 5*u.arcsec:
+                return -np.inf
+            elif parameter == 'theta_0' and (value < -np.pi/2*u.rad or value > np.pi/2*u.rad):
                 return -np.inf
 
         return super(Axisymmetric, self).lnprior(values=values)
@@ -144,6 +153,16 @@ class Axisymmetric(Runner):
         # convert barq into inclination value
         incl = np.arccos(np.sqrt(
             (self.median_q**2 - current_parameters['barq']**2)/(1. - current_parameters['barq']**2)))
+
+        # use delta_x and delta_y to shift the given cluster centre
+        self.x += current_parameters['delta_x']
+        self.y += current_parameters['delta_y']
+
+        # rotating data to determine rotation angle of cluster
+        # copied from data_reader.DataReader.rotate()
+        theta0 = current_parameters['theta_0']
+        self.x = self.x * np.cos(theta0) + self.y * np.sin(theta0)
+        self.y = -self.x * np.sin(theta0) + self.y * np.cos(theta0)
 
         # calculate JAM model for current parameters
         try:
@@ -174,6 +193,12 @@ class Axisymmetric(Runner):
                 initials[:, i] = self.median_q - 0.1*np.random.rand(n_walkers)
             elif len(row['name']) >= 5 and row['name'][:5] == 'kappa':
                 initials[:, i] = row['init'] + 0.3*np.random.randn(n_walkers)
+            elif row['name'] == 'delta_x' or row['name'] == 'delta_y':
+                # uniform on [-init, +init]
+                initials[:, i] = 2*row['init']*np.random.rand(n_walkers) - row['init']
+            elif row['name'] == 'theta_0':
+                # uniform on [-pi/2, pi/2], not sure if this is clever or too broad
+                initials[:, i] = np.pi*np.random.rand(n_walkers) - np.pi/2
             else:
                 initials[:, i] = row['init'] * (0.7 + 0.6*np.random.rand(n_walkers))*row['init'].unit
             i += 1
