@@ -40,9 +40,20 @@ def init_cjam(x, y, mge_mass, mge_lum, *args):
 def run_cjam(parameters):
 
     global gx, gy, gmge_mass, gmge_lum
+
+    # use delta_x and delta_y to shift the given cluster centre
+    gx -= parameters['delta_x']
+    gy -= parameters['delta_y']
+
+    # rotating data to determine rotation angle of cluster
+    # copied from data_reader.DataReader.rotate()
+    theta0 = parameters['theta_0']
+    gx = self.x * np.cos(theta0) + self.y * np.sin(theta0)
+    gy = -self.x * np.sin(theta0) + self.y * np.cos(theta0)
+    
     model = cjam.axisymmetric(gx, gy, gmge_lum, gmge_mass, parameters['d'], beta=parameters['beta'],
                               kappa=parameters['kappa'], mscale=parameters['mlr'].value, incl=parameters['incl'],
-                              mbh=parameters['mbh'])
+                              mbh=parameters['mbh'], rbh=parameters['rbh'])
 
     # get velocity and dispersion at every data point
     # note that astropy Quanitities cannot be pickled, so multiprocessing only works when the values are returned
@@ -90,7 +101,8 @@ class Axisymmetric(Runner):
             self._parameters = super(Axisymmetric, self).parameters
             self._parameters.update({'d': u.kpc, 'mlr': u.dimensionless_unscaled, 'barq': u.dimensionless_unscaled,
                                      'kappa': u.dimensionless_unscaled, 'beta': u.dimensionless_unscaled,
-                                     'mbh': u.Msun, 'delta_x': u.arcsec, 'delta_y': u.arcsec, 'theta_0': u.rad})
+                                     'mbh': u.Msun, 'delta_x': u.arcsec, 'delta_y': u.arcsec, 'theta_0': u.rad,
+                                     'rbh': u.arcsec})
         return self._parameters
 
     @property
@@ -121,6 +133,7 @@ class Axisymmetric(Runner):
         return labels
 
     def lnprior(self, values):
+        p = 0
         for parameter, value in self.fetch_parameters(values).items():
             if parameter == 'd' and value <= 0.5*u.kpc:
                 return -np.inf
@@ -128,16 +141,16 @@ class Axisymmetric(Runner):
                 return -np.inf
             elif parameter == 'barq' and (value <= 0.2 or value > self.median_q):
                 return -np.inf
-            elif parameter == 'kappa' and np.greater(abs(value), 10).all():
-                return -np.inf
-            elif parameter == 'mbh' and value < 0*u.Msun:
-                return -np.inf
-            elif (parameter == 'delta_x' or parameter == 'delta_y') and abs(value) > 5*u.arcsec:
-                return -np.inf
             elif parameter == 'theta_0' and (value < -np.pi/2*u.rad or value > np.pi/2*u.rad):
                 return -np.inf
+            elif parameter == 'kappa' and np.greater(abs(value), 10).all():
+                p += np.log(stats.normal(0, 5).pdf(value))
+            elif (parameter == 'delta_x' or parameter == 'delta_y') and abs(value) > 5*u.arcsec:
+                p += np.log(stats.norm(0, 1).pdf(value))
+            elif parameter == 'mbh' and value < 0*u.Msun:
+                p += np.log(stats.expon(0, 2).pdf(value/1e3))
 
-        return super(Axisymmetric, self).lnprior(values=values)
+        return p + super(Axisymmetric, self).lnprior(values=values)
 
     def lnlike(self, values):
 
@@ -155,8 +168,8 @@ class Axisymmetric(Runner):
             (self.median_q**2 - current_parameters['barq']**2)/(1. - current_parameters['barq']**2)))
 
         # use delta_x and delta_y to shift the given cluster centre
-        self.x += current_parameters['delta_x']
-        self.y += current_parameters['delta_y']
+        self.x -= current_parameters['delta_x']
+        self.y -= current_parameters['delta_y']
 
         # rotating data to determine rotation angle of cluster
         # copied from data_reader.DataReader.rotate()
@@ -168,7 +181,8 @@ class Axisymmetric(Runner):
         try:
             model = cjam.axisymmetric(self.x, self.y, self.mge_lum.data, self.mge_mass.data, current_parameters['d'],
                                       beta=current_parameters['beta'], kappa=current_parameters['kappa'],
-                                      mscale=current_parameters['mlr'], incl=incl, mbh=current_parameters['mbh'])
+                                      mscale=current_parameters['mlr'], incl=incl, mbh=current_parameters['mbh'],
+                                      rbh=current_parameters['rbh'])
         except ValueError:
             return -np.inf
 
