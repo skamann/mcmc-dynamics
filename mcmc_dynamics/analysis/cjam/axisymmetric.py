@@ -48,9 +48,9 @@ def run_cjam(parameters):
     # rotating data to determine rotation angle of cluster
     # copied from data_reader.DataReader.rotate()
     theta0 = parameters['theta_0']
-    gx = self.x * np.cos(theta0) + self.y * np.sin(theta0)
-    gy = -self.x * np.sin(theta0) + self.y * np.cos(theta0)
-    
+    gx = gx * np.cos(theta0) + gy * np.sin(theta0)
+    gy = -gx * np.sin(theta0) + gy * np.cos(theta0)
+
     model = cjam.axisymmetric(gx, gy, gmge_lum, gmge_mass, parameters['d'], beta=parameters['beta'],
                               kappa=parameters['kappa'], mscale=parameters['mlr'].value, incl=parameters['incl'],
                               mbh=parameters['mbh'], rbh=parameters['rbh'])
