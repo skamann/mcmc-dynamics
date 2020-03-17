@@ -48,8 +48,8 @@ def get_observed_data(filename, v_sys):
     return params, data
 
 
-def make_radial_plots(runner, data, initials, run_number):
-    radial_model = runner.create_profiles(sampler.chain, n_burn=50)
+def make_radial_plots(runner, chain, data, initials, run_number):
+    radial_model = runner.create_profiles(chain, n_burn=50)
 
     radial_profile = QTable()
     data.make_radial_bins(nstars=50, dlogr=0.1)
@@ -69,7 +69,7 @@ def make_radial_plots(runner, data, initials, run_number):
         cf = ConstantFit(data_i, initials=initials, background=None)
         sampler = cf(n_walkers=64, n_steps=100)
 
-        results = cf.compute_bestfit_values(chain=sampler.chain, n_burn=50)
+        results = cf.compute_bestfit_values(chain=chain, n_burn=50)
 
         k = 0
         for parameter in cf.initials:
@@ -150,14 +150,16 @@ if __name__ == "__main__":
                                 initials=initials, background=background, seed=config['seed'])
 
     if not args.plot:
+        logging.info('Starting to run MCMC chain ...')
         sampler = axisym(n_walkers=config['n_walkers'], n_steps=config['n_steps'], n_out=config['n_out'],
                          n_threads=config['n_threads'], plot=True, prefix=str(run_number), pos=pos)
 
     current_chain = chain if args.plot else sampler.chain
-    axisym.plot_chains(current_chain, filename='cjam_chains_{}.png'.format(run_number))
+    #axisym.plot_chains(current_chain, filename='cjam_chains_{}.png'.format(run_number))
 
     try:
-        axisym.create_triangle_plot(current_chain, n_burn=n_burn, filename='cjam_corner_{}.png'.format(run_number))
+        logging.info('Creating corner plot ...')
+        axisym.create_triangle_plot(current_chain, n_burn=config['n_burn'], filename='cjam_corner_{}.png'.format(run_number))
     except Exception as e:
         logging.warning(e)
 
@@ -166,4 +168,5 @@ if __name__ == "__main__":
                 {'name': 'v_max', 'init': config['v_max'] * u.km/u.s, 'fixed': False},
                 {'name': 'theta_0', 'init': config['theta_0'] * u.rad, 'fixed': False}]
 
-    make_radial_plots(runner=axisym, data=data, initials=initials, run_number=run_number)
+    logging.info('Creating profile plots ... ')
+    make_radial_plots(runner=axisym, chain=current_chain, data=data, initials=initials, run_number=run_number)

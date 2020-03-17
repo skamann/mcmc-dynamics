@@ -143,11 +143,11 @@ class Axisymmetric(Runner):
                 return -np.inf
             elif parameter == 'theta_0' and (value < -np.pi/2*u.rad or value > np.pi/2*u.rad):
                 return -np.inf
-            elif parameter == 'kappa' and np.greater(abs(value), 10).all():
+            elif parameter == 'kappa':
                 p += np.log(stats.normal(0, 5).pdf(value))
-            elif (parameter == 'delta_x' or parameter == 'delta_y') and abs(value) > 5*u.arcsec:
+            elif (parameter == 'delta_x' or parameter == 'delta_y'):
                 p += np.log(stats.norm(0, 1).pdf(value))
-            elif parameter == 'mbh' and value < 0*u.Msun:
+            elif parameter == 'mbh':
                 p += np.log(stats.expon(0, 2).pdf(value/1e3))
 
         return p + super(Axisymmetric, self).lnprior(values=values)
@@ -183,6 +183,7 @@ class Axisymmetric(Runner):
                                       beta=current_parameters['beta'], kappa=current_parameters['kappa'],
                                       mscale=current_parameters['mlr'], incl=incl, mbh=current_parameters['mbh'],
                                       rbh=current_parameters['rbh'])
+
         except ValueError:
             return -np.inf
 
@@ -207,6 +208,8 @@ class Axisymmetric(Runner):
                 initials[:, i] = self.median_q - 0.1*np.random.rand(n_walkers)
             elif len(row['name']) >= 5 and row['name'][:5] == 'kappa':
                 initials[:, i] = row['init'] + 0.3*np.random.randn(n_walkers)
+            elif row['name'] == 'mbh':
+                initials[:, i] = np.random.rand(n_walkers) * row['init']
             elif row['name'] == 'delta_x' or row['name'] == 'delta_y':
                 # uniform on [-init, +init]
                 initials[:, i] = 2*row['init']*np.random.rand(n_walkers) - row['init']
