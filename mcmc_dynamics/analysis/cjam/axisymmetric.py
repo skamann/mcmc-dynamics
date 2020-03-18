@@ -144,8 +144,8 @@ class Axisymmetric(Runner):
             elif parameter == 'theta_0' and (value < -np.pi/2*u.rad or value > np.pi/2*u.rad):
                 return -np.inf
             elif parameter == 'kappa':
-                p += np.log(stats.normal(0, 5).pdf(value))
-            elif (parameter == 'delta_x' or parameter == 'delta_y'):
+                p += np.log(stats.norm(0, 5).pdf(value)).sum()
+            elif parameter == 'delta_x' or parameter == 'delta_y':
                 p += np.log(stats.norm(0, 1).pdf(value))
             elif parameter == 'mbh':
                 p += np.log(stats.expon(0, 2).pdf(value/1e3))

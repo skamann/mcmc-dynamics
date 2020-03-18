@@ -39,8 +39,8 @@ def get_observed_data(filename, v_sys):
     logging.info('Assuming mean velocity of {}'.format(v_sys))
 
     data = DataReader({
-        'r': params['CentreDist'].values * u.arcsec,
-        'theta': params['CentreAngle'].values * u.deg,
+        'x': params['x'].values * u.arcmin,
+        'y': params['y'].values * u.arcmin,
         'v': params['STAR V'].values * u.km / u.s - v_sys,
         'verr': params['STAR V err'].values * u.km / u.s,
         'pmember': params['Membership']})
