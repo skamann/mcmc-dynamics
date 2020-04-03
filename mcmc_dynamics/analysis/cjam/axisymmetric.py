@@ -214,6 +214,8 @@ class Axisymmetric(Runner):
                 continue
             elif row['name'] == 'barq':
                 initials[:, i] = self.median_q - 0.5*np.random.rand(n_walkers)
+            elif row['name'] == 'kappa_x' or row['name'] == 'kappa_y':
+                initials[:, i] = 2*row['init']*np.random.rand(n_walkers) - row['init']
             elif len(row['name']) >= 5 and row['name'][:5] == 'kappa':
                 initials[:, i] = row['init'] + 0.3*np.random.randn(n_walkers)
             elif row['name'] == 'mbh':
@@ -221,11 +223,10 @@ class Axisymmetric(Runner):
             elif row['name'] == 'delta_x' or row['name'] == 'delta_y':
                 # uniform on [-init, +init]
                 initials[:, i] = 2*row['init']*np.random.rand(n_walkers) - row['init']
-            elif row['name'] in ['kappa_x', 'kappa_y']:
-                initials[:, i] = 2*row['init']*np.random.rand(n_walkers) - row['init']
             else:
                 initials[:, i] = row['init'] * (0.7 + 0.6*np.random.rand(n_walkers))*row['init'].unit
             i += 1
+            
         return initials
 
     def create_profiles(self, chain, n_burn, n_threads=1, n_samples=100, radii=None, n_theta=10,
