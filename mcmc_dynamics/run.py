@@ -51,14 +51,14 @@ def get_observed_data(filename, v_sys):
 def make_radial_plots(runner, chain, data, initials, run_number):
     radial_model = runner.create_profiles(chain, n_burn=50)
 
-    radial_profile = QTable()
+    radial_profile = table.QTable()
     data.make_radial_bins(nstars=50, dlogr=0.1)
     for column in ['r mean', 'r min', 'r max']:
-        radial_profile[column] = QTable.Column([], unit=data.data['r'].unit)
+        radial_profile[column] = table.QTable.Column([], unit=data.data['r'].unit)
     for parameter in initials:
         if not parameter['fixed']:
             for column in ['median', 'high', 'low']:
-                radial_profile['{0} {1}'.format(parameter['name'], column)] = QTable.Column(
+                radial_profile['{0} {1}'.format(parameter['name'], column)] = table.QTable.Column(
                     [], unit=parameter['init'].unit)
 
     for i in tqdm.tqdm(range(data.data['bin'].max() + 1)):
@@ -81,7 +81,7 @@ def make_radial_plots(runner, chain, data, initials, run_number):
 
         radial_profile.add_row(results_i)
 
-    radial_profile = QTable(radial_profile)
+    radial_profile = table.QTable(radial_profile)
 
     pp = ProfilePlot()
     x = radial_profile["r mean"]
