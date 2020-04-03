@@ -155,11 +155,11 @@ if __name__ == "__main__":
                          n_threads=config['n_threads'], plot=True, prefix=str(run_number), pos=pos)
 
     current_chain = chain if args.plot else sampler.chain
-    #axisym.plot_chains(current_chain, filename='cjam_chains_{}.png'.format(run_number))
+    axisym.plot_chain(current_chain, filename='cjam_chains_{}.png'.format(run_number))
 
     try:
         logging.info('Creating corner plot ...')
-        axisym.create_triangle_plot(current_chain, n_burn=config['n_burn'], filename='cjam_corner_{}.png'.format(run_number))
+        axisym.create_triangle_plot(current_chain, n_burn=config['n_burn'], filename='cjam_corner_{}.png'.format(run_number), quantiles=[0.16,0.5, 0.84], show_titles=True)
     except Exception as e:
         logging.warning(e)
 

@@ -124,10 +124,10 @@ class AnalyticalProfiles(Axisymmetric):
         if self._parameters is None:
             self._parameters = super(AnalyticalProfiles, self).parameters
             _ = self._parameters.pop('mlr')
-            _ = self._parameters.pop('kappa')
             self._parameters.update({'mlr_0': u.dimensionless_unscaled, 'mlr_t': u.dimensionless_unscaled,
                                      'mlr_inf': u.dimensionless_unscaled, 'r_mlr': u.arcsec,
-                                     'kappa_max': u.dimensionless_unscaled, 'r_kappa': u.arcsec})
+                                     'kappa_x': u.dimensionless_unscaled, 'kappa_y': u.dimensionless_unscaled,
+                                     'r_kappa': u.arcsec})
         return self._parameters
 
     @property
@@ -145,8 +145,10 @@ class AnalyticalProfiles(Axisymmetric):
                 labels[name] = r'$\Upsilon_{{\rm {0}}}/{{\rm M_\odot}}\,{{\rm L_\odot^{{-1}}}}$'.format(suffix)
             elif name == 'barq':
                 labels[name] = r'$\bar{q}$'
-            elif name == 'kappa_max':
-                labels[name] = r'$\kappa_{\rm max.}$'
+            elif name == 'kappa_x':
+                labels[name] = r'$\kappa_{\rm x}$'
+            elif name == 'kappa_y':
+                labels[name] = r'$\kappa_{\rm y}$'
             elif name == 'beta':
                 labels[name] = r'$\beta$'
             elif name == 'r_kappa':
@@ -167,7 +169,8 @@ class AnalyticalProfiles(Axisymmetric):
                 1.+_x**2)
 
         _x = (self.x_kappa/parameters.pop('r_kappa')).si
-        parameters['kappa'] = 2.*parameters.pop('kappa_max', 0)*_x / (1. + _x**2)
+        kappa_max = np.sqrt(parameters['kappa_x']**2 + parameters['kappa_y']**2)
+        parameters['kappa'] = 2.* kappa_max *_x / (1. + _x**2)
 
         return parameters
 
@@ -184,10 +187,13 @@ class AnalyticalProfiles(Axisymmetric):
                 v = u.Dex(value, unit=self.initials[i]['init'].unit)
 
             if parameter in ['mlr_0', 'mlr_t', 'mlr_inf'] and v <= 0.1:
+                print(['mlr_0', 'mlr_t', 'mlr_inf'])
                 return -np.inf
             elif parameter == 'r_mlr' and not self.mge_mass.data['s'].min() < v < self.mge_mass.data['s'].max():
+                print('r_mlr')
                 return -np.inf
             elif parameter == 'r_kappa' and not self.mge_lum.data['s'].min() < v < self.mge_lum.data['s'].max():
+                print('r_kappa')
                 return -np.inf
 
         return super(AnalyticalProfiles, self).lnprior(values=values)
