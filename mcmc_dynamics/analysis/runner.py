@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import corner
 import emcee
+import tqdm
 from matplotlib import gridspec
 from matplotlib.collections import LineCollection
 from matplotlib.ticker import MaxNLocator
@@ -162,6 +163,13 @@ class Runner(object):
         Returns the number of fitted parameters
         """
         return sum([not p['fixed'] for p in self.initials])
+
+    @property
+    def units(self):
+        """
+        Returns the units of the fitted parameters
+        """
+        return {p['name']: p['init'].unit for p in self.initials if not p['fixed']}
 
     def fetch_parameters(self, values):
         """
@@ -407,6 +415,8 @@ class Runner(object):
                 i += 1
         logger.info(msg)
 
+        pbar = tqdm.tqdm(total=n_steps)
+
         state = None
         while sampler.iterations < n_steps:
 
@@ -426,6 +436,9 @@ class Runner(object):
                     self.plot_chain(sampler.chain, true_values=true_values, figure=fig,
                                     filename='{0}_chains.png'.format(prefix) if prefix is not None else None)
             logger.info(output)
+            pbar.update(n_out)
+
+        pbar.close()
 
         # return current state of sampler
         return sampler
