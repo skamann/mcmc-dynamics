@@ -40,8 +40,22 @@ def init_cjam(x, y, mge_mass, mge_lum, *args):
 def run_cjam(parameters):
 
     global gx, gy, gmge_mass, gmge_lum
+
+    # use delta_x and delta_y to shift the given cluster centre
+    gx -= parameters['delta_x']
+    gy -= parameters['delta_y']
+
+    # rotating data to determine rotation angle of cluster
+    # copied from data_reader.DataReader.rotate()
+    theta0 = np.arctan2(parameters['kappa_y'], parameters['kappa_x'])
+    gx = gx * np.cos(theta0) + gy * np.sin(theta0)
+    gy = -gx * np.sin(theta0) + gy * np.cos(theta0)
+
+    kappa = np.sqrt(parameters['kappa_x']**2 + parameters['kappa_y']**2)
+
     model = cjam.axisymmetric(gx, gy, gmge_lum, gmge_mass, parameters['d'], beta=parameters['beta'],
-                              kappa=parameters['kappa'], mscale=parameters['mlr'].value, incl=parameters['incl'])
+                              kappa=kappa, mscale=parameters['mlr'].value, incl=parameters['incl'],
+                              mbh=parameters['mbh'], rbh=parameters['rbh'])
 
     # get velocity and dispersion at every data point
     # note that astropy Quanitities cannot be pickled, so multiprocessing only works when the values are returned
@@ -88,7 +102,9 @@ class Axisymmetric(Runner):
         if self._parameters is None:
             self._parameters = super(Axisymmetric, self).parameters
             self._parameters.update({'d': u.kpc, 'mlr': u.dimensionless_unscaled, 'barq': u.dimensionless_unscaled,
-                                     'kappa': u.dimensionless_unscaled, 'beta': u.dimensionless_unscaled})
+                                     'kappa_x': u.dimensionless_unscaled, 'kappa_y': u.dimensionless_unscaled,
+                                     'beta': u.dimensionless_unscaled, 'mbh': u.Msun, 
+                                     'delta_x': u.arcsec, 'delta_y': u.arcsec, 'rbh': u.arcsec})
         return self._parameters
 
     @property
@@ -106,22 +122,42 @@ class Axisymmetric(Runner):
                 labels[row['name']] = r'$\kappa$'
             elif row['name'] == 'beta':
                 labels[row['name']] = r'$\beta$'
+            elif row['name'] == 'mbh':
+                labels[row['name']] = r'$M_{\rm BH}$'
+            elif row['name'] == 'delta_x':
+                labels[row['name']] = r'$\Delta x$'
+            elif row['name'] == 'delta_y':
+                labels[row['name']] = r'$\Delta y$'
+#            elif row['name'] == 'theta_0':
+#                labels[row['name']] = r'$\theta_{{\rm 0}}/${0}'.format(latex_string)
             else:
                 labels[row['name']] = r'${0}/${1}'.format(row['name'], latex_string)
         return labels
 
     def lnprior(self, values):
-
-        for parameter, value in self.fetch_parameters(values).items():
+        p = 0
+        current_parameters = self.fetch_parameters(values)
+        for parameter, value in current_parameters.items():
             if parameter == 'd' and value <= 0.5*u.kpc:
                 return -np.inf
             elif parameter == 'mlr' and (np.less_equal(value, 0.1).all() or np.greater(value, 10).all()):
                 return -np.inf
             elif parameter == 'barq' and (value <= 0.2 or value > self.median_q):
                 return -np.inf
-            if parameter == 'kappa' and np.greater(abs(value), 10).all():
-                return -np.inf
-        return super(Axisymmetric, self).lnprior(values=values)
+#            elif parameter == 'theta_0' and (value < 0 or value > np.pi*u.rad):
+#                return -np.inf
+#            elif parameter == 'kappa':
+#                p += np.log(stats.norm(0, 5).pdf(value)).sum()
+            elif parameter in ['kappa_x']:
+                kappa_x, kappa_y = current_parameters['kappa_x'], current_parameters['kappa_y']
+                _kappa = np.sqrt(kappa_x**2 + kappa_y**2)
+                p += np.log(stats.norm(0, 5).pdf(_kappa)/_kappa)
+            elif parameter == 'delta_x' or parameter == 'delta_y':
+                p += np.log(stats.norm(0, 1).pdf(value))
+            elif parameter == 'mbh':
+                p += np.log(stats.expon(0, 2).pdf(value/1e3))
+
+        return p + super(Axisymmetric, self).lnprior(values=values)
 
     def lnlike(self, values):
 
@@ -138,10 +174,26 @@ class Axisymmetric(Runner):
         incl = np.arccos(np.sqrt(
             (self.median_q**2 - current_parameters['barq']**2)/(1. - current_parameters['barq']**2)))
 
+        # use delta_x and delta_y to shift the given cluster centre
+        self.x -= current_parameters['delta_x']
+        self.y -= current_parameters['delta_y']
+
+        # rotating data to determine rotation angle of cluster
+        # copied from data_reader.DataReader.rotate()
+        theta0 = np.arctan2(current_parameters['kappa_y'], current_parameters['kappa_x'])
+        self.x = self.x * np.cos(theta0) + self.y * np.sin(theta0)
+        self.y = -self.x * np.sin(theta0) + self.y * np.cos(theta0)
+
         # calculate JAM model for current parameters
-        model = cjam.axisymmetric(self.x, self.y, self.mge_lum.data, self.mge_mass.data, current_parameters['d'],
-                                  beta=current_parameters['beta'], kappa=current_parameters['kappa'],
-                                  mscale=current_parameters['mlr'], incl=incl)
+        try:
+            kappa = np.sqrt(current_parameters['kappa_x']**2 + current_parameters['kappa_y']**2)
+            model = cjam.axisymmetric(self.x, self.y, self.mge_lum.data, self.mge_mass.data, current_parameters['d'],
+                                      beta=current_parameters['beta'], kappa=kappa,
+                                      mscale=current_parameters['mlr'], incl=incl, mbh=current_parameters['mbh'],
+                                      rbh=current_parameters['rbh'])
+
+        except ValueError:
+            return -np.inf
 
         logger.debug('CJAM call succeeded for {0}.'.format(unique_id))
 
@@ -161,12 +213,20 @@ class Axisymmetric(Runner):
             if row['fixed']:
                 continue
             elif row['name'] == 'barq':
-                initials[:, i] = self.median_q - 0.1*np.random.rand(n_walkers)
+                initials[:, i] = self.median_q - 0.5*np.random.rand(n_walkers)
+            elif row['name'] == 'kappa_x' or row['name'] == 'kappa_y':
+                initials[:, i] = 2*row['init']*np.random.rand(n_walkers) - row['init']
             elif len(row['name']) >= 5 and row['name'][:5] == 'kappa':
                 initials[:, i] = row['init'] + 0.3*np.random.randn(n_walkers)
+            elif row['name'] == 'mbh':
+                initials[:, i] = np.random.rand(n_walkers) * row['init']
+            elif row['name'] == 'delta_x' or row['name'] == 'delta_y':
+                # uniform on [-init, +init]
+                initials[:, i] = 2*row['init']*np.random.rand(n_walkers) - row['init']
             else:
                 initials[:, i] = row['init'] * (0.7 + 0.6*np.random.rand(n_walkers))*row['init'].unit
             i += 1
+            
         return initials
 
     def create_profiles(self, chain, n_burn, n_threads=1, n_samples=100, radii=None, n_theta=10,

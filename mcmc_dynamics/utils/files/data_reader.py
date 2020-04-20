@@ -119,9 +119,10 @@ class DataReader(object):
 
         self.data['x'] = self.data['r']*np.cos(self.data['theta'])
         self.data['y'] = self.data['r']*np.sin(self.data['theta'])
-        if self.data['r'].unit is not None:
-            self.data['x'].unit = self.data['r'].unit
-            self.data['y'].unit = self.data['r'].unit
+        #if self.data['r'].unit is not None:
+        #    print(self.data['x'])
+        #    self.data['x'].unit = self.data['r'].unit
+        #    self.data['y'].unit = self.data['r'].unit
 
     def make_radial_bins(self, nstars=50, dlogr=0.2):
         """

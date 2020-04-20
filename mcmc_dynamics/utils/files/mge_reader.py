@@ -49,7 +49,6 @@ class MgeReader(object):
         if 'n' not in self.data.columns:
             logger.warning('Input data misses column n. Assuming ascending component indices')
             self.data['n'] = np.arange(1, len(self.data) + 1)
-        self.data.add_index('n')
 
         if 'q' not in self.data.columns:
             logger.warning('Input data misses column q. Assuming circularity (q=1).')
@@ -118,8 +117,7 @@ class MgeReader(object):
 
         mge = np.zeros(x.shape)*self.data['i'].unit
 
-        for i in np.asarray(n):
-            mge += self.data.loc[i]['i']*np.exp(
-                (x**2 + y**2/self.data.loc[i]['q']**2)/(-2.*self.data.loc[i]['s']**2))
+        for row in self.data:
+            mge += row['i']*np.exp((x**2 + y**2/row['q']**2)/(-2.*row['s']**2))
 
         return mge
