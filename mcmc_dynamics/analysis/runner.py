@@ -194,6 +194,7 @@ class Runner(object):
                     v = u.Dex(values[i], unit=row['init'].unit)
                 i += 1
             current_parameters[row['name']] = v
+
         assert i == len(values), 'Not all parameters used.'
 
         return current_parameters
@@ -671,7 +672,7 @@ class Runner(object):
 
         for i in range(self.n_fitted_parameters):
             if lnprob is None:
-                axes[i].plot(samples[..., i].T, color="k", alpha=0.4)
+                axes[i].plot(samples[..., i].T, color="#AAAAAA", alpha=0.1)
             else:
                 x, _ = np.mgrid[0:samples.shape[1]:1, 0:samples.shape[0]:1]
                 xy = np.dstack((x, samples[..., i].T))

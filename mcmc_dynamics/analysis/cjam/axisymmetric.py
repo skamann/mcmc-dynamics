@@ -292,6 +292,10 @@ class Axisymmetric(Runner):
             init_cjam(*init_arguments)
             results = [run_cjam(p) for p in parameters]
 
+        good_results = [r for r in results if np.isfinite(r).all()]
+        print("#results: {}, good results {}".format(len(results), len(good_results)))
+        results = good_results
+        
         # get percentiles of mean velocity and dispersion
         vz = np.percentile([r[0] for r in results], [50, 16, 84, 0.15, 99.85], axis=0)
         sigma = np.percentile([np.sqrt(r[1] - r[0]**2) for r in results], [50, 16, 84, 0.15, 99.85], axis=0)
@@ -301,6 +305,7 @@ class Axisymmetric(Runner):
         vz_radial = vz[:, semimajor]*u.km/u.s
 
         # for dispersion, average 2nd order moment over data points with same radius
+        print(sigma.shape)
         sameradius = np.arange(x.size) // theta.size
         sigma_radial = [stats.binned_statistic(sameradius, s, 'mean', bins=radii.size)[0] for s in sigma]*u.km/u.s
 

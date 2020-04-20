@@ -48,11 +48,11 @@ def get_observed_data(filename, v_sys):
     return params, data
 
 
-def make_radial_plots(runner, chain, data, initials, run_number):
-    radial_model = runner.create_profiles(chain, n_burn=50)
+def make_radial_plots(runner, chain, data, background, initials, run_number, n_burn):
+    radial_model = runner.create_profiles(chain, n_burn=n_burn, n_threads=12, n_samples=20, filename="radial_profiles_{}".format(run_number))
 
     radial_profile = table.QTable()
-    data.make_radial_bins(nstars=50, dlogr=0.1)
+    data.make_radial_bins(nstars=100, dlogr=0.1)
     for column in ['r mean', 'r min', 'r max']:
         radial_profile[column] = table.QTable.Column([], unit=data.data['r'].unit)
     for parameter in initials:
@@ -61,15 +61,14 @@ def make_radial_plots(runner, chain, data, initials, run_number):
                 radial_profile['{0} {1}'.format(parameter['name'], column)] = table.QTable.Column(
                     [], unit=parameter['init'].unit)
 
-    for i in tqdm.tqdm(range(data.data['bin'].max() + 1)):
+    for i in range(data.data['bin'].max() + 1):
         data_i = data.fetch_radial_bin(i)
 
         results_i = [data_i.data['r'].mean(), data_i.data['r'].min(), data_i.data['r'].max()]
 
-        cf = ConstantFit(data_i, initials=initials, background=None)
+        cf = ConstantFit(data_i, initials=initials, background=background)
         sampler = cf(n_walkers=64, n_steps=100)
-
-        results = cf.compute_bestfit_values(chain=chain, n_burn=50)
+        results = cf.compute_bestfit_values(chain=sampler.chain, n_burn=50)
 
         k = 0
         for parameter in cf.initials:
@@ -82,6 +81,7 @@ def make_radial_plots(runner, chain, data, initials, run_number):
         radial_profile.add_row(results_i)
 
     radial_profile = table.QTable(radial_profile)
+    radial_profile.write("binned_radial_profiles_{}".format(run_number), format='ascii.ecsv', overwrite=True)
 
     pp = ProfilePlot()
     x = radial_profile["r mean"]
@@ -155,7 +155,16 @@ if __name__ == "__main__":
                          n_threads=config['n_threads'], plot=True, prefix=str(run_number), pos=pos)
 
     current_chain = chain if args.plot else sampler.chain
-    axisym.plot_chain(current_chain, filename='cjam_chains_{}.png'.format(run_number))
+    
+    try:
+        old_run_number = args.chain[:args.chain.find("_")]
+        logging.info("Old run number: {}".format(old_run_number))
+        lnprob_file = "{}_lnprob.pkl".format(old_run_number)
+        _lnprob = axisym.read_chain(lnprob_file)
+    except FileNotFoundError:
+        _lnprob = None
+        
+    axisym.plot_chain(current_chain, filename='cjam_chains_{}.png'.format(run_number), lnprob=_lnprob)
 
     try:
         logging.info('Creating corner plot ...')
@@ -169,4 +178,4 @@ if __name__ == "__main__":
                 {'name': 'theta_0', 'init': config['theta_0'] * u.rad, 'fixed': False}]
 
     logging.info('Creating profile plots ... ')
-    make_radial_plots(runner=axisym, chain=current_chain, data=data, initials=initials, run_number=run_number)
+    make_radial_plots(runner=axisym, chain=current_chain, data=data, background=background, initials=initials, run_number=run_number, n_burn=config['n_burn'])
