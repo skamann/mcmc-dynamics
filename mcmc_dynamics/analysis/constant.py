@@ -2,6 +2,7 @@ import inspect
 import logging
 import numpy as np
 from astropy import units as u
+from astropy.table import QTable
 from .runner import Runner
 
 
@@ -51,7 +52,7 @@ class ConstantFit(Runner):
         if self._parameters is None:
             self._parameters = super(ConstantFit, self).parameters
             self._parameters.update(
-                {'v_sys': u.km / u.s, 'sigma_max': u.km / u.s, 'v_max': u.km / u.s, 'theta_0': u.rad})
+                {'v_sys': u.km / u.s, 'sigma_max': u.km / u.s, 'v_maxx': u.km / u.s, 'v_maxy': u.km/u.s})
         return self._parameters
 
     @property
@@ -61,10 +62,12 @@ class ConstantFit(Runner):
             latex_string = row['init'].unit.to_string('latex')
             if row['name'] == 'v_sys':
                 labels[row['name']] = r'$v_{{\rm sys}}/${0}'.format(latex_string)
-            elif row['name'] == 'v_max':
-                labels[row['name']] = r'$v_{{\rm max}}/${0}'.format(latex_string)
-            elif row['name'] == 'theta_0':
-                labels[row['name']] = r'$\theta_{{\rm 0}}/${0}'.format(latex_string)
+            elif row['name'] == 'v_maxx':
+                labels[row['name']] = r'$v_{{\rm max,\,x}}/${0}'.format(latex_string)
+            elif row['name'] == 'v_maxy':
+                labels[row['name']] = r'$v_{{\rm max,\,y}}/${0}'.format(latex_string)
+            # elif row['name'] == 'theta_0':
+            #     labels[row['name']] = r'$\theta_{{\rm 0}}/${0}'.format(latex_string)
             elif row['name'] == 'sigma_max':
                 labels[row['name']] = r'$\sigma_{{\rm 0}}/${0}'.format(latex_string)
             else:
@@ -95,7 +98,7 @@ class ConstantFit(Runner):
 
         return sigma_max*np.ones(self.n_data, dtype=np.float64)
 
-    def rotation_model(self, v_sys, v_max, theta_0, **kwargs):
+    def rotation_model(self, v_sys, v_maxx, v_maxy, **kwargs):
         """
         The method calculates the rotation velocity at the positions of the
         available data points.
@@ -104,10 +107,10 @@ class ConstantFit(Runner):
         ----------
         v_sys : float
             The constant systemic velocity of the model.
-        v_max : float
-            The constant rotation velocity of the model.
-        theta_0 : float
-            The constant position angle of the model.
+        v_maxx : float
+            The x-component of the constant rotation velocity of the model.
+        v_maxy : float
+            The y-component of the constant rotation velocity of the model.
         kwargs
             This model does not use any additional keyword arguments.
 
@@ -120,6 +123,10 @@ class ConstantFit(Runner):
         if kwargs:
             raise IOError('Unknown keyword argument(s) "{0}" for method {1}.rotation_model.'.format(
                 ', '.join(kwargs.keys()), self.__class__.__name__))
+
+        v_max = np.sqrt(v_maxx**2 + v_maxy**2)
+        theta_0 = np.arctan2(v_maxy, v_maxx)
+
         return v_sys + v_max*np.sin(self.theta - theta_0)
 
     def lnprior(self, values):
@@ -147,10 +154,10 @@ class ConstantFit(Runner):
         for parameter, value in self.fetch_parameters(values).items():
             if parameter == 'sigma_max' and (value <= 0 or value > 100*u.km/u.s):
                 return -np.inf
-            elif parameter == 'v_max' and abs(value) > 50*u.km/u.s:
+            elif parameter in ['v_maxx', 'vmaxy'] and abs(value) > 50*u.km/u.s:
                 return -np.inf
-            elif parameter == 'theta_0' and (value < 0 or value > np.pi*u.rad):
-                return -np.inf
+            # elif parameter == 'theta_0' and (value < 0 or value > np.pi*u.rad):
+            #     return -np.inf
         return 0
 
     def lnlike(self, values):
@@ -215,12 +222,48 @@ class ConstantFit(Runner):
         for row in self.initials:
             if row['fixed']:
                 continue
-            if row['name'] == 'theta_0':
-                initials[:, i] = np.pi*u.rad * np.random.rand(n_walkers)
+            # if row['name'] == 'theta_0':
+            #     initials[:, i] = np.pi*u.rad * np.random.rand(n_walkers)
             else:
                 initials[:, i] = row['init'] + np.random.randn(n_walkers)*row['init'].unit
             i += 1
         return initials
+
+    def compute_theta_vmax(self, chain, n_burn):
+
+        try:
+            i = self.fitted_parameters.index('v_maxx')
+            j = self.fitted_parameters.index('v_maxy')
+        except ValueError:
+            logger.error("'v_maxx' and/or 'v_maxy' missing in list of fitted parameters.")
+            return None
+
+        v_maxx = chain[:, n_burn:, i].flatten()
+        v_maxy = chain[:, n_burn:, j].flatten()
+
+        v_max = np.sqrt(v_maxx ** 2 + v_maxy ** 2)
+        theta = np.arctan2(v_maxy, v_maxx)
+
+        median_theta = np.arctan2(np.median(v_maxy), np.median(v_maxx))
+
+        v_max[abs(theta - median_theta) > np.pi/2.] *= -1
+        theta[(theta - median_theta) > np.pi / 2.] -= np.pi
+        theta[(theta - median_theta) < -np.pi / 2.] += np.pi
+
+        results = QTable(data=[['median', 'uperr', 'loerr']], names=['value'])
+        results.add_index('value')
+
+        for name, values in {'v_max': v_max, 'theta_0': theta}.items():
+
+            unit = u.rad if name == 'theta_0' else self.units['v_maxx']
+
+            percentiles = np.percentile(values, [16, 50, 84])
+
+            results.add_column(QTable.Column(
+                [percentiles[1], percentiles[2] - percentiles[1], percentiles[1] - percentiles[0]]*unit,
+                name=name))
+
+        return results
 
     # def leastsq(self, **kwargs):
     #     """

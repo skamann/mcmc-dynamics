@@ -89,7 +89,7 @@ class ModelFit(Runner):
     def parameters(self):
         if self._parameters is None:
             self._parameters = super(ModelFit, self).parameters
-            self._parameters.update({'v_sys': u.km / u.s, 'v_max': u.km / u.s, 'r_peak': u.arcsec, 'theta_0': u.rad,
+            self._parameters.update({'v_sys': u.km / u.s, 'v_maxx': u.km / u.s, 'v_maxy': u.km / u.s,'r_peak': u.arcsec,
                                      'sigma_max': u.km / u.s, 'a': u.arcsec})
         return self._parameters
 
@@ -100,12 +100,14 @@ class ModelFit(Runner):
             latex_string = row['init'].unit.to_string('latex')
             if row['name'] == 'v_sys':
                 labels[row['name']] = r'$v_{{\rm sys}}/${0}'.format(latex_string)
-            elif row['name'] == 'v_max':
-                labels[row['name']] = r'$v_{{\rm max}}/${0}'.format(latex_string)
+            elif row['name'] == 'v_maxx':
+                labels[row['name']] = r'$v_{{\rm max,\,x}}/${0}'.format(latex_string)
+            elif row['name'] == 'v_maxy':
+                labels[row['name']] = r'$v_{{\rm max,\,y}}/${0}'.format(latex_string)
             elif row['name'] == 'r_peak':
                 labels[row['name']] = r'$r_{{\rm peak}}/${0}'.format(latex_string)
-            elif row['name'] == 'theta_0':
-                labels[row['name']] = r'$\theta_{{\rm 0}}/${0}'.format(latex_string)
+            # elif row['name'] == 'theta_0':
+            #     labels[row['name']] = r'$\theta_{{\rm 0}}/${0}'.format(latex_string)
             elif row['name'] == 'sigma_max':
                 labels[row['name']] = r'$\sigma_{{\rm 0}}/${0}'.format(latex_string)
             elif row['name'] == 'a':
@@ -145,7 +147,7 @@ class ModelFit(Runner):
 
         return sigma_max / (1. + self.r ** 2 / a ** 2) ** 0.25
 
-    def rotation_model(self, v_sys, v_max, theta_0, r_peak=1., **kwargs):
+    def rotation_model(self, v_sys, v_maxx, v_maxy, r_peak=1., **kwargs):
         """
         The method calculates the line-of-sight velocity at the positions
         (r, theta) of the available data points.
@@ -156,15 +158,17 @@ class ModelFit(Runner):
         v_los = v_sys + 2*(v_max/r_peak)*x_pa/(1. + (x_pa / r_peak)^2),
 
         with x_pa = r*sin(theta - theta_0).
+             v_max = sqrt(v_maxx^2 + v_maxy^2)
+             theta_0 = arctan(v_maxy/v_maxx)
 
         Parameters
         ----------
         v_sys : float
             The constant systemic velocity of the model.
-        v_max : float
-            The constant rotation velocity of the model.
-        theta_0 : float
-            The constant position angle of the model.
+        v_maxx : float
+            The x-component of the rotation amplitude of the model.
+        v_maxy : float
+            The y-component of the rotation amplitude of the model.
         r_peak : float
             The position of the peak of the rotation curve.
         kwargs
@@ -179,6 +183,9 @@ class ModelFit(Runner):
         if kwargs:
             raise IOError('Unknown keyword argument(s) "{0}" for method {1}.rotation_model.'.format(
                 ', '.join(kwargs.keys()), self.__class__.__name__))
+
+        v_max = np.sqrt(v_maxx**2 + v_maxy**2)
+        theta_0 = np.arctan2(v_maxy, v_maxx)
 
         x_pa = self.r * np.sin(self.theta - theta_0)
         return v_sys + 2. * (v_max / r_peak) * x_pa / (1. + (x_pa / r_peak) ** 2)
@@ -208,10 +215,10 @@ class ModelFit(Runner):
         for parameter, value in self.fetch_parameters(values).items():
             if parameter == 'sigma_max' and (value <= 0 or value > 100*u.km/u.s):
                 return -np.inf
-            elif parameter == 'v_max' and abs(value) > 50*u.km/u.s:
+            elif parameter in ['v_maxx', 'v_maxy'] and abs(value) > 50*u.km/u.s:
                 return -np.inf
-            elif parameter == 'theta_0' and (value < 0 or value > np.pi*u.rad):
-                return -np.inf
+            # elif parameter == 'theta_0' and (value < 0 or value > np.pi*u.rad):
+            #     return -np.inf
             elif parameter in ['r_peak', 'a'] and not 0 < value <= 3.*u.arcmin:
                 return -np.inf
         return 0
@@ -278,8 +285,8 @@ class ModelFit(Runner):
         for row in self.initials:
             if row['fixed']:
                 continue
-            if row['name'] == 'theta_0':
-                initials[:, i] = np.pi * np.random.rand(n_walkers)
+            # if row['name'] == 'theta_0':
+            #     initials[:, i] = np.pi * np.random.rand(n_walkers)
             elif row['name'] in ['r_peak', 'a']:
                 initials[:, i] = row['init'] * np.random.lognormal(0.0, 0.2, n_walkers)
             else:
@@ -320,13 +327,15 @@ class ModelFit(Runner):
                 fitted_models[row['name']] = chains[:, n_burn:, i].flatten()*row['init'].unit
                 i += 1
 
-        v_max = fitted_models['v_max']
+        v_maxx = fitted_models['v_maxx']
+        v_maxy = fitted_models['v_maxy']
         r_peak = fitted_models['r_peak']
         sigma_max = fitted_models['sigma_max']
         a = fitted_models['a']
 
         radii = np.logspace(-1, 2.5, 50)*u.arcsec
 
+        v_max = np.sqrt(v_maxx**2 + v_maxy**2)
         v_rot = 2. * (v_max / r_peak) * radii[:, np.newaxis] / (1. + (radii[:, np.newaxis] / r_peak) ** 2)
         pv_rot = np.percentile(v_rot.to(u.km/u.s), [50, 16, 84, 0.15, 99.85], axis=-1)
         sigma = sigma_max / (1. + radii[:, np.newaxis] ** 2 / a ** 2) ** 0.25
