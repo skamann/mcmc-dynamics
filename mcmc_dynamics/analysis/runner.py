@@ -5,7 +5,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import corner
 import emcee
-import tqdm
 from matplotlib import gridspec
 from matplotlib.collections import LineCollection
 from matplotlib.ticker import MaxNLocator
@@ -339,7 +338,7 @@ class Runner(object):
             i += 1
         return initials
 
-    def __call__(self, n_walkers=100, n_steps=500, n_burn=100, n_threads=1, n_out=50, pos=None, lnprob0=None,
+    def __call__(self, n_walkers=100, n_steps=500, n_burn=100, n_threads=1, n_out=None, pos=None, lnprob0=None,
                  plot=False, prefix='sampler', true_values=None, **kwargs):
         """
         Determine the intrinsic parameters of the velocity distribution.
@@ -407,40 +406,38 @@ class Runner(object):
         sampler = emcee.EnsembleSampler(n_walkers, self.n_fitted_parameters, self.lnprob, threads=n_threads)
         logger.info("Running MCMC chain ...")
 
-        msg = "Iter. <log like>   "
-        i = 0
-        for row in self.initials:
-            if not row['fixed']:
-                msg += " {0:12s}".format('<' + row['name'] + '>')
-                i += 1
-        logger.info(msg)
-
-        pbar = tqdm.tqdm(total=n_steps)
-
-        state = None
-        while sampler.iterations < n_steps:
-
-            pos, lnp, state = sampler.run_mcmc(pos, n_out, lnprob0=lnprob0, rstate0=state)
-
-            output = " {0:4d} {1:12.5e}".format(sampler.iterations, np.mean(lnp[:]))
+        if n_out is not None:
+            msg = "Iter. <log like>   "
             i = 0
             for row in self.initials:
                 if not row['fixed']:
-                    output += " {0:12.5e}".format(np.mean(pos[-n_out:-1, i]))
+                    msg += " {0:12s}".format('<' + row['name'] + '>')
                     i += 1
+            logger.info(msg)
 
-            if sampler.iterations % n_out == 0:
-                if prefix is not None:
-                    self.save_current_status(sampler, prefix=prefix)
-                if plot:
-                    for ax in fig.axes:
-                        ax.cla()
-                    self.plot_chain(sampler.chain, true_values=true_values, figure=fig,
-                                    filename='{0}_chains.png'.format(prefix) if prefix is not None else None)
-            logger.info(output)
-            pbar.update(n_out)
+        state = None
+        while sampler.iteration < n_steps:
 
-        pbar.close()
+            pos, lnp, state = sampler.run_mcmc(pos, n_out if n_out is not None else n_steps, log_prob0=lnprob0,
+                                               rstate0=state, progress=True)
+
+            if n_out is not None:
+                output = " {0:4d} {1:12.5e}".format(sampler.iteration, np.mean(lnp[:]))
+                i = 0
+                for row in self.initials:
+                    if not row['fixed']:
+                        output += " {0:12.5e}".format(np.mean(pos[-n_out:-1, i]))
+                        i += 1
+
+                if sampler.iteration % n_out == 0:
+                    if prefix is not None:
+                        self.save_current_status(sampler, prefix=prefix)
+                    if plot:
+                        for ax in fig.axes:
+                            ax.cla()
+                        self.plot_chain(sampler.chain, true_values=true_values, figure=fig,
+                                        filename='{0}_chains.png'.format(prefix) if prefix is not None else None)
+                logger.info(output)
 
         # return current state of sampler
         return sampler
