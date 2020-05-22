@@ -250,14 +250,17 @@ class ConstantFit(Runner):
 
         #median_theta = np.arctan2(np.median(v_maxy), np.median(v_maxx))
 
-        #v_max[abs(theta - median_theta) > np.pi/2.] *= -1
-        #theta[(theta - median_theta) > np.pi / 2.] -= np.pi
-        #theta[(theta - median_theta) < -np.pi / 2.] += np.pi
+        # make sure median angle is in the centre of the full angle range (i.e. at 0 when range is (-Pi, Pi])
+        _theta = theta - median_theta
+        _theta = np.where(_theta < -np.pi, _theta + 2 * np.pi, _theta)
+        _theta = np.where(_theta > np.pi, _theta - 2 * np.pi, _theta)
+
+        v_max[abs(_theta) > np.pi/2.] *= -1
 
         results = QTable(data=[['median', 'uperr', 'loerr']], names=['value'])
         results.add_index('value')
 
-        for name, values in {'v_max': v_max, 'theta_0': theta}.items():
+        for name, values in {'v_max': v_max, 'theta_0': _theta}.items():
 
             unit = u.rad if name == 'theta_0' else self.units['v_maxx']
 
@@ -266,6 +269,8 @@ class ConstantFit(Runner):
             results.add_column(QTable.Column(
                 [percentiles[1], percentiles[2] - percentiles[1], percentiles[1] - percentiles[0]]*unit,
                 name=name))
+
+        results.loc['median']['theta_0'] += median_theta*u.rad
 
         return results
 
