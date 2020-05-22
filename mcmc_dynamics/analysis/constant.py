@@ -126,6 +126,8 @@ class ConstantFit(Runner):
 
         v_max = np.sqrt(v_maxx**2 + v_maxy**2)
         theta_0 = np.arctan2(v_maxy, v_maxx)
+        
+        print(self.theta)
 
         return v_sys + v_max*np.sin(self.theta - theta_0)
 
@@ -153,8 +155,10 @@ class ConstantFit(Runner):
         # Split parameters
         for parameter, value in self.fetch_parameters(values).items():
             if parameter == 'sigma_max' and (value <= 0 or value > 100*u.km/u.s):
+                print('{} causes lnprior = -inf'.format(parameter))
                 return -np.inf
             elif parameter in ['v_maxx', 'vmaxy'] and abs(value) > 50*u.km/u.s:
+                print('{} causes lnprior = -inf'.format(parameter))
                 return -np.inf
             # elif parameter == 'theta_0' and (value < 0 or value > np.pi*u.rad):
             #     return -np.inf
@@ -244,11 +248,11 @@ class ConstantFit(Runner):
         v_max = np.sqrt(v_maxx ** 2 + v_maxy ** 2)
         theta = np.arctan2(v_maxy, v_maxx)
 
-        median_theta = np.arctan2(np.median(v_maxy), np.median(v_maxx))
+        #median_theta = np.arctan2(np.median(v_maxy), np.median(v_maxx))
 
-        v_max[abs(theta - median_theta) > np.pi/2.] *= -1
-        theta[(theta - median_theta) > np.pi / 2.] -= np.pi
-        theta[(theta - median_theta) < -np.pi / 2.] += np.pi
+        #v_max[abs(theta - median_theta) > np.pi/2.] *= -1
+        #theta[(theta - median_theta) > np.pi / 2.] -= np.pi
+        #theta[(theta - median_theta) < -np.pi / 2.] += np.pi
 
         results = QTable(data=[['median', 'uperr', 'loerr']], names=['value'])
         results.add_index('value')

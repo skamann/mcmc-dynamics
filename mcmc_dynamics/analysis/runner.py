@@ -291,9 +291,11 @@ class Runner(object):
             # trick is used. From both exponents their maximum value is subtracted and added as an additive term to
             # the final log likelihood.
             lnlike_member = -0.5*np.log(2. * np.pi * norm.value) + exponent
+            #print(lnlike_member)
             max_lnlike = np.max([lnlike_member, self.lnlike_background], axis=0)
             lnlike = max_lnlike + np.log(self.pmember*np.exp(lnlike_member - max_lnlike) + (
                     1. - self.pmember)*np.exp(self.lnlike_background - max_lnlike))
+            #print(lnlike.sum())
             return lnlike.sum()
 
     def lnprob(self, values):
