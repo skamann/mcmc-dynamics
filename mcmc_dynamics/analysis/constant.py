@@ -127,8 +127,6 @@ class ConstantFit(Runner):
         v_max = np.sqrt(v_maxx**2 + v_maxy**2)
         theta_0 = np.arctan2(v_maxy, v_maxx)
         
-        print(self.theta)
-
         return v_sys + v_max*np.sin(self.theta - theta_0)
 
     def lnprior(self, values):
@@ -248,7 +246,7 @@ class ConstantFit(Runner):
         v_max = np.sqrt(v_maxx ** 2 + v_maxy ** 2)
         theta = np.arctan2(v_maxy, v_maxx)
 
-        #median_theta = np.arctan2(np.median(v_maxy), np.median(v_maxx))
+        median_theta = np.arctan2(np.median(v_maxy), np.median(v_maxx))
 
         # make sure median angle is in the centre of the full angle range (i.e. at 0 when range is (-Pi, Pi])
         _theta = theta - median_theta

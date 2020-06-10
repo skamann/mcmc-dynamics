@@ -51,10 +51,8 @@ def run_cjam(parameters):
     gx = gx * np.cos(theta0) + gy * np.sin(theta0)
     gy = -gx * np.sin(theta0) + gy * np.cos(theta0)
 
-    kappa = np.sqrt(parameters['kappa_x']**2 + parameters['kappa_y']**2)
-
     model = cjam.axisymmetric(gx, gy, gmge_lum, gmge_mass, parameters['d'], beta=parameters['beta'],
-                              kappa=kappa, mscale=parameters['mlr'].value, incl=parameters['incl'],
+                              kappa=parameters["kappa"], mscale=parameters['mlr'].value, incl=parameters['incl'],
                               mbh=parameters['mbh'], rbh=parameters['rbh'])
 
     # get velocity and dispersion at every data point
@@ -186,9 +184,8 @@ class Axisymmetric(Runner):
 
         # calculate JAM model for current parameters
         try:
-            kappa = np.sqrt(current_parameters['kappa_x']**2 + current_parameters['kappa_y']**2)
             model = cjam.axisymmetric(self.x, self.y, self.mge_lum.data, self.mge_mass.data, current_parameters['d'],
-                                      beta=current_parameters['beta'], kappa=kappa,
+                                      beta=current_parameters['beta'], kappa=current_parameters['kappa'],
                                       mscale=current_parameters['mlr'], incl=incl, mbh=current_parameters['mbh'],
                                       rbh=current_parameters['rbh'])
 

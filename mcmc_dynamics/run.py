@@ -11,6 +11,8 @@ import json
 import time
 import sys
 
+import pickle
+
 from mcmc_dynamics.analysis import ModelFit, ConstantFit
 from mcmc_dynamics.analysis.runner import Runner
 from mcmc_dynamics.analysis.cjam import Axisymmetric, AnalyticalProfiles
@@ -96,11 +98,6 @@ def plot_radial_profiles(radial_model, radial_profile, run_number=None, filename
     
 
 def generate_radial_data(data, background, initials, run_number): 
-    initials = [{'name': 'v_sys', 'init': 0.0*u.km/u.s, 'fixed': True},
-            {'name': 'sigma_max', 'init': 10.0*u.km/u.s, 'fixed': False},
-            {'name': 'v_maxx', 'init': -2.0*u.km/u.s, 'fixed': False},
-            {'name': 'v_maxy', 'init': -2.0*u.km/u.s, 'fixed': False},]
-    counts = {}
     members = data
     
     members.make_radial_bins(nstars=100, dlogr=0.2)
@@ -124,13 +121,14 @@ def generate_radial_data(data, background, initials, run_number):
     for i in range(members.data['bin'].max() + 1):
         
         data_i = members.fetch_radial_bin(i)
-        data_i.data.write("binned_{}_{}.csv".format(run_number, i), format='ascii.ecsv', overwrite=True)
+        #data_i.data.write("binned_{}_{}.csv".format(run_number, i), format='ascii.ecsv', overwrite=True)
         
         results_i = [data_i.data['r'].mean(), data_i.data['r'].min(), data_i.data['r'].max()]
         
         cf = ConstantFit(data_i, initials=initials, background=background)
-#        sampler = cf(n_walkers=200, n_steps=250)
-        sampler = cf(n_walkers=400, n_steps=300)
+        
+        #sampler = cf(n_walkers=400, n_steps=300)
+        sampler = cf(n_walkers=32, n_steps=300)
 
         results = cf.compute_bestfit_values(chain=sampler.chain, n_burn=100)
             
@@ -149,9 +147,7 @@ def generate_radial_data(data, background, initials, run_number):
                     [theta_vmax.loc['median'][name], theta_vmax.loc['uperr'][name], theta_vmax.loc['loerr'][name]])
             
         radial_profile.add_row(results_i)
-        counts[i] = len(data_i.data)
         
-    print(counts)
     radial_profile.write('binned_profile_{}.csv'.format(run_number), format='ascii.ecsv', overwrite=True)
 
     return radial_profile
@@ -200,6 +196,40 @@ def make_mlr_plot(runner, chain, n_burn, n_samples=128):
 
     fig.tight_layout()
     fig.savefig('ngc6093_mlr_profile.png')
+    
+def plot_kappas(runner, chain):
+    bins = 20 #np.arange(-1, 1, 0.05)
+    
+    kappas = []
+    rkappas = []
+    for walker in chain:
+        p, rk = runner.fetch_parameters(walker[-1], return_rkappa=True)
+        k = p["kappa"]
+
+        rkappas.append(rk.value)
+        kappas.append(k)
+        
+    kappas = np.vstack(kappas)
+    rkappas = np.asarray(rkappas)
+    
+    print(kappas.shape, rkappas.shape)
+    
+    fig, subs = plt.subplots(nrows=len(k), ncols=1, figsize=(6,12), sharex=True)
+    figc, subc = plt.subplots(1,1, figsize=(6,6))
+    
+    print("comp.\tmin\tmax\tmedian")
+    row = "{}\t{:.2f}\t{:.2f}\t{:.2f}"
+    for i, k in enumerate(kappas.T.value):
+        print(row.format(i, min(k), max(k), np.median(k)))
+        _, bins, _ = subs[i].hist(k, alpha=0.5, label="component " + str(i), bins=bins)
+        
+        subc.scatter(rkappas, k, label="component " + str(i))
+
+    subc.legend()
+    for sub in subs:
+        sub.legend(loc="upper left")
+    fig.savefig("kappas.pdf")
+    figc.savefig("corr_kappa.pdf")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -230,7 +260,7 @@ if __name__ == "__main__":
     initials = json.load(open(config['filename_initials']))['parameters']
     background_data = table.Table.read(config['filename_background'], format='ascii.commented_header',
                                        guess=False, header_start=96)
-    background = SingleStars(v=background_data['Vr']*u.km/u.s + config['v_sys'] * u.km/u.s)
+    background = SingleStars(v=background_data['Vr']*u.km/u.s - config['v_sys']*u.km/u.s)
 
     axisym = AnalyticalProfiles(data, mge_mass=mge_mass, mge_lum=mge_lum,
                                 initials=initials, background=background, seed=config['seed'])
@@ -251,6 +281,8 @@ if __name__ == "__main__":
         _lnprob = None
         
     axisym.plot_chain(current_chain, filename='cjam_chains_{}.png'.format(run_number), lnprob=_lnprob)
+    plot_kappas(axisym, current_chain)
+    logging.info("Plotted kappas.")
 
     try:
         logging.info('Creating corner plot ...')

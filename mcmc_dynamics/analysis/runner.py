@@ -3,6 +3,7 @@ import pickle
 import warnings
 import matplotlib.pyplot as plt
 import numpy as np
+from multiprocessing import Pool
 import corner
 import emcee
 from matplotlib import gridspec
@@ -406,7 +407,12 @@ class Runner(object):
                 i, [p['name'] for p in self.initials if not p['fixed']], pos[i])
 
         # start MCMC
-        sampler = emcee.EnsembleSampler(n_walkers, self.n_fitted_parameters, self.lnprob, threads=n_threads)
+        if n_threads > 1:
+            pool = Pool(processes=n_threads)
+        else:
+            pool = None
+        
+        sampler = emcee.EnsembleSampler(n_walkers, self.n_fitted_parameters, self.lnprob, pool=pool)
         logger.info("Running MCMC chain ...")
 
         if n_out is not None:
@@ -441,6 +447,9 @@ class Runner(object):
                         self.plot_chain(sampler.chain, true_values=true_values, figure=fig,
                                         filename='{0}_chains.png'.format(prefix) if prefix is not None else None)
                 logger.info(output)
+
+        if pool is not None:
+            pool.close()
 
         # return current state of sampler
         return sampler

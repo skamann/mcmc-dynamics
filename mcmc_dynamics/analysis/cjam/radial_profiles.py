@@ -159,7 +159,7 @@ class AnalyticalProfiles(Axisymmetric):
                 labels[row['name']] = r'${0}/${1}'.format(row['name'], latex_string)
         return labels
 
-    def fetch_parameters(self, values):
+    def fetch_parameters(self, values, return_rkappa=False):
 
         parameters = super(AnalyticalProfiles, self).fetch_parameters(values)
 
@@ -168,10 +168,14 @@ class AnalyticalProfiles(Axisymmetric):
             parameters.pop('mlr_0')*(1.-_x) + 2.*parameters.pop('mlr_t')*_x + parameters.pop('mlr_inf')*_x*(_x-1.))/(
                 1.+_x**2)
 
-        _x = (self.x_kappa/parameters.pop('r_kappa')).si
+        rkappa = parameters.pop('r_kappa')
+        _x = (self.x_kappa / rkappa).si
         kappa_max = np.sqrt(parameters['kappa_x']**2 + parameters['kappa_y']**2)
         parameters['kappa'] = 2.* kappa_max *_x / (1. + _x**2)
-
+        
+        if return_rkappa:
+            return parameters, rkappa
+        
         return parameters
 
     def lnprior(self, values):
