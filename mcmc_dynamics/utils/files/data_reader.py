@@ -123,6 +123,13 @@ class DataReader(object):
         #    print(self.data['x'])
         #    self.data['x'].unit = self.data['r'].unit
         #    self.data['y'].unit = self.data['r'].unit
+        
+    def apply_offset(self, x=0, y=0):
+        """
+        Subtracts the given values from all x- and y-coordinates.
+        """
+        self.data['x'] -= x
+        self.data['y'] -= y
 
     def make_radial_bins(self, nstars=50, dlogr=0.2):
         """

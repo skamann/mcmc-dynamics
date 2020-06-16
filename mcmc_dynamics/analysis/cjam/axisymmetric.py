@@ -42,14 +42,14 @@ def run_cjam(parameters):
     global gx, gy, gmge_mass, gmge_lum
 
     # use delta_x and delta_y to shift the given cluster centre
-    gx -= parameters['delta_x']
-    gy -= parameters['delta_y']
+    #gx -= parameters['delta_x']
+    #gy -= parameters['delta_y']
 
     # rotating data to determine rotation angle of cluster
     # copied from data_reader.DataReader.rotate()
-    theta0 = np.arctan2(parameters['kappa_y'], parameters['kappa_x'])
-    gx = gx * np.cos(theta0) + gy * np.sin(theta0)
-    gy = -gx * np.sin(theta0) + gy * np.cos(theta0)
+    #theta0 = np.arctan2(parameters['kappa_y'], parameters['kappa_x'])
+    #gx = gx * np.cos(theta0) + gy * np.sin(theta0)
+    #gy = -gx * np.sin(theta0) + gy * np.cos(theta0)
 
     model = cjam.axisymmetric(gx, gy, gmge_lum, gmge_mass, parameters['d'], beta=parameters['beta'],
                               kappa=parameters["kappa"], mscale=parameters['mlr'].value, incl=parameters['incl'],
@@ -102,7 +102,8 @@ class Axisymmetric(Runner):
             self._parameters.update({'d': u.kpc, 'mlr': u.dimensionless_unscaled, 'barq': u.dimensionless_unscaled,
                                      'kappa_x': u.dimensionless_unscaled, 'kappa_y': u.dimensionless_unscaled,
                                      'beta': u.dimensionless_unscaled, 'mbh': u.Msun, 
-                                     'delta_x': u.arcsec, 'delta_y': u.arcsec, 'rbh': u.arcsec})
+                                     'delta_x': u.arcsec, 'delta_y': u.arcsec, 'rbh': u.arcsec,
+                                     'delta_v': u.km/u.s})
         return self._parameters
 
     @property
@@ -126,6 +127,8 @@ class Axisymmetric(Runner):
                 labels[row['name']] = r'$\Delta x$'
             elif row['name'] == 'delta_y':
                 labels[row['name']] = r'$\Delta y$'
+            elif row['name'] == 'delta_v':
+                labels[row['name']] = r'$\Delta v$'
 #            elif row['name'] == 'theta_0':
 #                labels[row['name']] = r'$\theta_{{\rm 0}}/${0}'.format(latex_string)
             else:
@@ -146,11 +149,11 @@ class Axisymmetric(Runner):
 #                return -np.inf
 #            elif parameter == 'kappa':
 #                p += np.log(stats.norm(0, 5).pdf(value)).sum()
-            elif parameter in ['kappa_x']:
-                kappa_x, kappa_y = current_parameters['kappa_x'], current_parameters['kappa_y']
-                _kappa = np.sqrt(kappa_x**2 + kappa_y**2)
-                p += np.log(stats.norm(0, 5).pdf(_kappa)/_kappa)
+            elif parameter == 'kappa_x' or parameter =='kappa_y':
+                p += np.log(stats.norm(0, 5).pdf(value))
             elif parameter == 'delta_x' or parameter == 'delta_y':
+                p += np.log(stats.norm(0, 1).pdf(value))
+            elif parameter == 'delta_v':
                 p += np.log(stats.norm(0, 1).pdf(value))
             elif parameter == 'mbh':
                 p += np.log(stats.expon(0, 2).pdf(value/1e3))
@@ -179,8 +182,11 @@ class Axisymmetric(Runner):
         # rotating data to determine rotation angle of cluster
         # copied from data_reader.DataReader.rotate()
         theta0 = np.arctan2(current_parameters['kappa_y'], current_parameters['kappa_x'])
+        
         self.x = self.x * np.cos(theta0) + self.y * np.sin(theta0)
         self.y = -self.x * np.sin(theta0) + self.y * np.cos(theta0)
+        
+        self.v += current_parameters['delta_v']
 
         # calculate JAM model for current parameters
         try:
@@ -220,6 +226,12 @@ class Axisymmetric(Runner):
             elif row['name'] == 'delta_x' or row['name'] == 'delta_y':
                 # uniform on [-init, +init]
                 initials[:, i] = 2*row['init']*np.random.rand(n_walkers) - row['init']
+            elif row['name'] == 'delta_v':
+                initials[:, i] = 2*row['init']*np.random.rand(n_walkers) - row['init']
+            elif row['name'] == 'r_kappa':
+                a = 10
+                b= 140
+                initials[:, i] = (b-a) * np.random.rand(n_walkers) + a
             else:
                 initials[:, i] = row['init'] * (0.7 + 0.6*np.random.rand(n_walkers))*row['init'].unit
             i += 1

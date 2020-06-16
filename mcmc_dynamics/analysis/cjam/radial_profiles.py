@@ -197,7 +197,6 @@ class AnalyticalProfiles(Axisymmetric):
                 print('r_mlr')
                 return -np.inf
             elif parameter == 'r_kappa' and not self.mge_lum.data['s'].min() < v < self.mge_lum.data['s'].max():
-                print('r_kappa')
                 return -np.inf
 
         return super(AnalyticalProfiles, self).lnprior(values=values)

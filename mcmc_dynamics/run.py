@@ -97,8 +97,9 @@ def plot_radial_profiles(radial_model, radial_profile, run_number=None, filename
     plt.savefig(_filename)
     
 
-def generate_radial_data(data, background, initials, run_number): 
+def generate_radial_data(data, background, initials, run_number, delta_x=0, delta_y=0): 
     members = data
+    members.apply_offset(delta_x, delta_y)
     
     members.make_radial_bins(nstars=100, dlogr=0.2)
 
@@ -117,8 +118,8 @@ def generate_radial_data(data, background, initials, run_number):
             radial_profile['{0} {1}'.format('v_max', column)] = QTable.Column([], unit=u.km/u.s)
         for column in ['median', 'high', 'low']:
             radial_profile['{0} {1}'.format('theta_0', column)] = QTable.Column([], unit=u.rad)
-                
-    for i in range(members.data['bin'].max() + 1):
+ 
+     for i in range(members.data['bin'].max() + 1):
         
         data_i = members.fetch_radial_bin(i)
         #data_i.data.write("binned_{}_{}.csv".format(run_number, i), format='ascii.ecsv', overwrite=True)
@@ -127,10 +128,11 @@ def generate_radial_data(data, background, initials, run_number):
         
         cf = ConstantFit(data_i, initials=initials, background=background)
         
-        #sampler = cf(n_walkers=400, n_steps=300)
         sampler = cf(n_walkers=32, n_steps=300)
 
         results = cf.compute_bestfit_values(chain=sampler.chain, n_burn=100)
+        theta_vmax = cf.compute_theta_vmax(chain=sampler.chain, n_burn=100)
+
             
         k = 0
         for parameter in cf.initials:
@@ -140,7 +142,6 @@ def generate_radial_data(data, background, initials, run_number):
             results_i.extend([results.loc['median'][name], results.loc['uperr'][name], results.loc['loerr'][name]])
             k += 1
 
-        theta_vmax = cf.compute_theta_vmax(chain=sampler.chain, n_burn=100)
         if theta_vmax is not None:
             for name in ['v_max', 'theta_0']:
                 results_i.extend(
@@ -155,7 +156,7 @@ def generate_radial_data(data, background, initials, run_number):
 
 def make_radial_plots(runner, chain, data, background, initials, run_number, n_burn, radial_model=None, radial_profile=None):
     if radial_model is None:
-        radial_model = runner.create_profiles(chain, n_burn=n_burn, n_threads=12, n_samples=20, filename="radial_profiles_{}.csv".format(run_number))
+        radial_model = runner.create_profiles(chain, n_burn=n_burn, n_threads=12, n_samples=100, filename="radial_profiles_{}.csv".format(run_number))
     if radial_profile is None:
         radial_profile = generate_radial_data(chain, data, background, initials, run_number, n_burn)
     
@@ -303,17 +304,23 @@ if __name__ == "__main__":
     logging.info("Plotted M/L profile.")
     #assert False
     
+    if args.datafile is not None:
+        radial_profile = table.QTable.read(args.datafile, format='ascii.ecsv')
+    else:
+        logging.info("Generating binned data ...")
+        parameters = axisym.sample_chain(current_chain, n_burn=config['n_burn'], n_samples=100)
+        delta_x = np.median([p["delta_x"].value for p in parameters]) * parameters[0]["delta_x"].unit
+        delta_y = np.median([p["delta_y"].value for p in parameters]) * parameters[0]["delta_y"].unit
+        logging.info("Accounting for shift in centre: deltax = {:.2f}, delta_y = {:.2f}".format(delta_x, delta_y))
+        radial_profile = generate_radial_data(data, background, initials, run_number, delta_x=delta_x, delta_y=delta_y)
+    
     if args.modelfile is not None:
         logging.info("Reading model file {}".format(args.modelfile))
         radial_model = table.QTable.read(args.modelfile, format='ascii.ecsv')
     else:
         radial_model = axisym.create_profiles(current_chain, n_burn=config['n_burn'], n_threads=12, n_samples=20, filename="radial_profiles_{}.csv".format(run_number))
         
-    if args.datafile is not None:
-        radial_profile = table.QTable.read(args.datafile, format='ascii.ecsv')
-    else:
-        logging.info("Generating binned data ...")
-        radial_profile = generate_radial_data(data, background, initials, run_number)
+
         
     logging.info("Plotting profiles ...")
     plot_radial_profiles(radial_model=radial_model, radial_profile=radial_profile, run_number=run_number)
