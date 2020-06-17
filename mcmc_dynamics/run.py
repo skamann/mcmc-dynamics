@@ -97,11 +97,9 @@ def plot_radial_profiles(radial_model, radial_profile, run_number=None, filename
     plt.savefig(_filename)
     
 
-def generate_radial_data(data, background, initials, run_number, delta_x=0, delta_y=0): 
+def generate_radial_data(data, background, initials, run_number, deltas_x=(0,), deltas_y=(0,)): 
     members = data
-    members.apply_offset(delta_x, delta_y)
-    
-    members.make_radial_bins(nstars=100, dlogr=0.2)
+    members.make_radial_bins(nstars=500, dlogr=0.2)
 
     # prepare output table
     radial_profile = QTable()
@@ -118,38 +116,100 @@ def generate_radial_data(data, background, initials, run_number, delta_x=0, delt
             radial_profile['{0} {1}'.format('v_max', column)] = QTable.Column([], unit=u.km/u.s)
         for column in ['median', 'high', 'low']:
             radial_profile['{0} {1}'.format('theta_0', column)] = QTable.Column([], unit=u.rad)
+    #radial_profile['delta_x'] = QTable.Column([], unit=u.arcsec)
+    #radial_profile['delta_y'] = QTable.Column([], unit=u.arcsec)
+    
+    table = []
+    samples = []
  
-     for i in range(members.data['bin'].max() + 1):
+    for offi, (delta_x, delta_y) in enumerate(zip(deltas_x, deltas_y)):
+        logging.info("#################---------------------------------------------------######################")
+        logging.info("Using offsets {} of {}. delta_x: {:.3f}, delta_y: {:.3f}".format(offi+1, len(deltas_x), delta_x, delta_y))
+        logging.info("#################---------------------------------------------------######################")
         
-        data_i = members.fetch_radial_bin(i)
-        #data_i.data.write("binned_{}_{}.csv".format(run_number, i), format='ascii.ecsv', overwrite=True)
-        
-        results_i = [data_i.data['r'].mean(), data_i.data['r'].min(), data_i.data['r'].max()]
-        
-        cf = ConstantFit(data_i, initials=initials, background=background)
-        
-        sampler = cf(n_walkers=32, n_steps=300)
-
-        results = cf.compute_bestfit_values(chain=sampler.chain, n_burn=100)
-        theta_vmax = cf.compute_theta_vmax(chain=sampler.chain, n_burn=100)
-
+        members.apply_offset(delta_x, delta_y)    
+        members.make_radial_bins(nstars=100, dlogr=0.2, force=True)
+    
+        for i in range(members.data['bin'].max() + 1):
             
-        k = 0
-        for parameter in cf.initials:
-            if parameter['fixed']:
-                continue
-            name = parameter['name']
-            results_i.extend([results.loc['median'][name], results.loc['uperr'][name], results.loc['loerr'][name]])
-            k += 1
-
-        if theta_vmax is not None:
-            for name in ['v_max', 'theta_0']:
-                results_i.extend(
-                    [theta_vmax.loc['median'][name], theta_vmax.loc['uperr'][name], theta_vmax.loc['loerr'][name]])
+            data_i = members.fetch_radial_bin(i)
+            #data_i.data.write("binned_{}_{}.csv".format(run_number, i), format='ascii.ecsv', overwrite=True)
             
-        radial_profile.add_row(results_i)
+            results_i = [data_i.data['r'].mean(), data_i.data['r'].min(), data_i.data['r'].max()]
+            
+            cf = ConstantFit(data_i, initials=initials, background=background)
+            sampler = cf(n_walkers=16, n_steps=300)
+
+            results = cf.compute_bestfit_values(chain=sampler.chain, n_burn=100)
+            theta_vmax, vmax, theta = cf.compute_theta_vmax(chain=sampler.chain, n_burn=100,
+                                                            return_samples=True)
+            
+            samples_df = pd.DataFrame({'theta': theta, 'vmax': vmax})            
+            samples_df['delta_x'] = delta_x
+            samples_df['delta_y'] = delta_y
+            samples_df['offsetid'] = offi
+            samples_df['binid'] = i
+            samples_df['r mean'] = data_i.data['r'].mean()
+            
+            samples.append(samples_df)
+            
+            row = {'delta_x': delta_x,
+                   'delta_y': delta_y,
+                   'offsetid': offi,
+                   'binid': i,
+                   'r mean': data_i.data['r'].mean(),
+                   'r min': data_i.data['r'].min(),
+                   'r max': data_i.data['r'].max(),
+                   'sigma_max median': results.loc['median']['sigma_max'],
+                   'sigma_max high':   results.loc['uperr']['sigma_max'],
+                   'sigma_max low':    results.loc['loerr']['sigma_max'], 
+                   'v_maxx median':    results.loc['median']['v_maxx'],  
+                   'v_maxx high':      results.loc['uperr']['v_maxx'], 
+                   'v_maxx low':       results.loc['loerr']['v_maxx'],
+                   'v_maxy median':    results.loc['median']['v_maxy'],
+                   'v_maxy high':      results.loc['uperr']['v_maxy'],
+                   'v_maxy low':       results.loc['loerr']['v_maxy'],
+                   'v_max median':     theta_vmax.loc['median']['v_max'],
+                   'v_max high':       theta_vmax.loc['uperr']['v_max'],
+                   'v_max low':        theta_vmax.loc['loerr']['v_max'],
+                   'theta_0 median':   theta_vmax.loc['median']['theta_0'],
+                   'theta_0 high':     theta_vmax.loc['uperr']['theta_0'],
+                   'theta_0 low':      theta_vmax.loc['loerr']['theta_0'],
+                   }
+            rowvalues = {}
+            for k,v in row.items():
+                try:
+                    rowvalues[k] = v.value
+                except AttributeError:
+                    rowvalues[k] = v
+                
+            table.append(rowvalues)
+                
+            k = 0
+            for parameter in cf.initials:
+                if parameter['fixed']:
+                    continue
+                name = parameter['name']
+                results_i.extend([results.loc['median'][name], results.loc['uperr'][name], results.loc['loerr'][name]])
+                k += 1
+
+            if theta_vmax is not None:
+                for name in ['v_max', 'theta_0']:
+                    results_i.extend(
+                        [theta_vmax.loc['median'][name], theta_vmax.loc['uperr'][name], theta_vmax.loc['loerr'][name]])#, delta_x, delta_y])
+                    
+            #print(results_i)
+            radial_profile.add_row(results_i)
+        
+        members.apply_offset(-delta_x, -delta_y)    
         
     radial_profile.write('binned_profile_{}.csv'.format(run_number), format='ascii.ecsv', overwrite=True)
+    
+    table = pd.DataFrame(table)
+    table.to_csv('binned_profile_{}_pd.csv'.format(run_number))
+    
+    samples = pd.concat(samples, ignore_index=True)
+    samples.to_csv('binned_profile_{}_allsamples.csv'.format(run_number))
 
     return radial_profile
 
@@ -213,8 +273,6 @@ def plot_kappas(runner, chain):
     kappas = np.vstack(kappas)
     rkappas = np.asarray(rkappas)
     
-    print(kappas.shape, rkappas.shape)
-    
     fig, subs = plt.subplots(nrows=len(k), ncols=1, figsize=(6,12), sharex=True)
     figc, subc = plt.subplots(1,1, figsize=(6,6))
     
@@ -238,6 +296,7 @@ if __name__ == "__main__":
     parser.add_argument('--config', help='json file with config data', type=str)
     parser.add_argument('--restart', help='set to restart the given chain', action="store_true")
     parser.add_argument('--plot', help='only create diagnostic plots for a given chain', action='store_true')
+    parser.add_argument('--name', help='str to use instead of run_number', type=str)
     parser.add_argument('--modelfile', type=str)
     parser.add_argument('--datafile', type=str)
     args = parser.parse_args()
@@ -245,6 +304,8 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     config = json.load(open(args.config))
     run_number = int(time.time())
+    if args.name:
+        run_number = args.name
 
     pos = None
     if args.chain:
@@ -308,11 +369,14 @@ if __name__ == "__main__":
         radial_profile = table.QTable.read(args.datafile, format='ascii.ecsv')
     else:
         logging.info("Generating binned data ...")
-        parameters = axisym.sample_chain(current_chain, n_burn=config['n_burn'], n_samples=100)
-        delta_x = np.median([p["delta_x"].value for p in parameters]) * parameters[0]["delta_x"].unit
-        delta_y = np.median([p["delta_y"].value for p in parameters]) * parameters[0]["delta_y"].unit
-        logging.info("Accounting for shift in centre: deltax = {:.2f}, delta_y = {:.2f}".format(delta_x, delta_y))
-        radial_profile = generate_radial_data(data, background, initials, run_number, delta_x=delta_x, delta_y=delta_y)
+        parameters = axisym.sample_chain(current_chain, n_burn=config['n_burn'], n_samples=20)
+        # delta_x = np.median([p["delta_x"].value for p in parameters]) * parameters[0]["delta_x"].unit
+        # delta_y = np.median([p["delta_y"].value for p in parameters]) * parameters[0]["delta_y"].unit
+        delta_x = [p["delta_x"] for p in parameters]
+        delta_y = [p["delta_y"] for p in parameters]
+        
+        #logging.info("Accounting for shift in centre: deltax = {:.2f}, delta_y = {:.2f}".format(delta_x, delta_y))
+        radial_profile = generate_radial_data(data, background, initials, run_number, deltas_x=delta_x, deltas_y=delta_y)
     
     if args.modelfile is not None:
         logging.info("Reading model file {}".format(args.modelfile))

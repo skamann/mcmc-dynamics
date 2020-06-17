@@ -231,7 +231,7 @@ class ConstantFit(Runner):
             i += 1
         return initials
 
-    def compute_theta_vmax(self, chain, n_burn):
+    def compute_theta_vmax(self, chain, n_burn, return_samples=False):
 
         try:
             i = self.fitted_parameters.index('v_maxx')
@@ -269,6 +269,9 @@ class ConstantFit(Runner):
                 name=name))
 
         results.loc['median']['theta_0'] += median_theta*u.rad
+        
+        if return_samples:
+            return results, v_max, _theta
 
         return results
 

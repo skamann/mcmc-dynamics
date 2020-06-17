@@ -131,7 +131,7 @@ class DataReader(object):
         self.data['x'] -= x
         self.data['y'] -= y
 
-    def make_radial_bins(self, nstars=50, dlogr=0.2):
+    def make_radial_bins(self, nstars=50, dlogr=0.2, force=False):
         """
 
         Parameters
@@ -143,7 +143,7 @@ class DataReader(object):
         -------
 
         """
-        if not self.has_polar:
+        if not self.has_polar or force:
             if self.has_cartesian:
                 self.compute_polar()
             else:
