@@ -241,7 +241,6 @@ class ConstantFit(Runner):
         v_maxx = chain[:, n_burn:, i].flatten()
         v_maxy = chain[:, n_burn:, j].flatten()
 
-        # v_max = np.sqrt(v_maxx ** 2 + v_maxy ** 2)
         theta = np.arctan2(v_maxy, v_maxx)
 
         median_theta = np.arctan2(np.median(v_maxy), np.median(v_maxx))
@@ -251,7 +250,8 @@ class ConstantFit(Runner):
         _theta = np.where(_theta < -np.pi, _theta + 2 * np.pi, _theta)
         _theta = np.where(_theta > np.pi, _theta - 2 * np.pi, _theta)
 
-        # v_max[abs(_theta) > np.pi/2.] *= -1
+        # to obtain v_max, the values of (v_maxx, vmaxy) rotated by -median_theta. That way, one component will be
+        # in direction of median_theta, which we consider as v_max.
         v_max = v_maxx * np.cos(-median_theta) - v_maxy * np.sin(-median_theta)
 
         results = QTable(data=[['median', 'uperr', 'loerr']], names=['value'])
