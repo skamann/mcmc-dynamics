@@ -160,7 +160,9 @@ class Axisymmetric(Runner):
 
         return p + super(Axisymmetric, self).lnprior(values=values)
 
-    def lnlike(self, values):
+    def lnlike(self, values, return_model=False):
+        x = np.copy(self.x)
+        y = np.copy(self.y)
 
         current_parameters = self.fetch_parameters(values)
 
@@ -176,21 +178,27 @@ class Axisymmetric(Runner):
             (self.median_q**2 - current_parameters['barq']**2)/(1. - current_parameters['barq']**2)))
 
         # use delta_x and delta_y to shift the given cluster centre
-        self.x -= current_parameters['delta_x']
-        self.y -= current_parameters['delta_y']
+        #self.x -= current_parameters['delta_x']
+        #self.y -= current_parameters['delta_y']
+
+        x -= current_parameters['delta_x']
+        y -= current_parameters['delta_y']
 
         # rotating data to determine rotation angle of cluster
         # copied from data_reader.DataReader.rotate()
         theta0 = np.arctan2(current_parameters['kappa_y'], current_parameters['kappa_x'])
         
-        self.x = self.x * np.cos(theta0) + self.y * np.sin(theta0)
-        self.y = -self.x * np.sin(theta0) + self.y * np.cos(theta0)
+        #self.x = self.x * np.cos(theta0) + self.y * np.sin(theta0)
+        #self.y = -self.x * np.sin(theta0) + self.y * np.cos(theta0)
+        
+        x = x * np.cos(theta0) + y * np.sin(theta0)
+        y = -x * np.sin(theta0) + y * np.cos(theta0)
         
         self.v += current_parameters['delta_v']
 
         # calculate JAM model for current parameters
         try:
-            model = cjam.axisymmetric(self.x, self.y, self.mge_lum.data, self.mge_mass.data, current_parameters['d'],
+            model = cjam.axisymmetric(x, y, self.mge_lum.data, self.mge_mass.data, current_parameters['d'],
                                       beta=current_parameters['beta'], kappa=current_parameters['kappa'],
                                       mscale=current_parameters['mlr'], incl=incl, mbh=current_parameters['mbh'],
                                       rbh=current_parameters['rbh'])
@@ -207,6 +215,10 @@ class Axisymmetric(Runner):
         # calculate likelihood
         if not (v2zz > vz**2).all():
             return -np.inf
+        if return_model:
+            lnlike = self._calculate_lnlike(v_los=vz, sigma_los=np.sqrt(v2zz - vz**2))
+            return lnlike, x, y, vz, v2zz
+        
         return self._calculate_lnlike(v_los=vz, sigma_los=np.sqrt(v2zz - vz**2))
 
     def get_initials(self, n_walkers):
@@ -239,7 +251,7 @@ class Axisymmetric(Runner):
         return initials
 
     def create_profiles(self, chain, n_burn, n_threads=1, n_samples=100, radii=None, n_theta=10,
-                        filename=None):
+                        filename=None, save_samples=False):
         """
         Create radial profiles of the (projected) rotation velocity and the
         velocity dispersion by randomly drawing parameters samples from the
@@ -334,6 +346,22 @@ class Axisymmetric(Runner):
 
         if filename is not None:
             profile.write(filename, format='ascii.ecsv', overwrite=True)
+            
+        if save_samples:
+            # parameters is a list of dicts, we need a dict with lists
+            # stolen from stackoverflow
+            #v = {k: [dic[k] for dic inparameters] for k in parameters[0]}
+            
+            allsamples = []
+            for i, param in enumerate(parameters):
+                samples = pd.DataFrame({'x': x, 'y': y, 'first_moment': results[i][0], 'second_moment': results[i][1]})
+                for k, v in param.items():
+                    samples[k] = v
+                allsamples.append(samples)
+                
+            allsamples = pd.concat(allsamples, ignore_index=True)
+            fname = filename[:filename.find('.')] + '_allsamples.csv'
+            allsamples.to_csv(fname, index=False)
 
         return profile
 

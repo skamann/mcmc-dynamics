@@ -37,7 +37,7 @@ def get_mge(filename):
     return mge_lum, mge_mass
 
 
-def get_observed_data(filename, v_sys, drop_member=True):
+def get_observed_data(filename, v_sys):
     params = pd.read_csv(filename)
     #params = params[params['Membership'] > 0.7]
 
@@ -47,10 +47,8 @@ def get_observed_data(filename, v_sys, drop_member=True):
         'x': params['x'].values * u.arcmin,
         'y': params['y'].values * u.arcmin,
         'v': params['STAR V'].values * u.km / u.s - v_sys,
-        'verr': params['STAR V err'].values * u.km / u.s}
-        
-    if not drop_member:
-        data_dict.update({'pmember': params['Membership']})
+        'verr': params['STAR V err'].values * u.km / u.s,
+        'pmember': params['Membership']}
         
     data = DataReader(data_dict)
 
@@ -233,30 +231,32 @@ def make_mlr_plot(runner, chain, n_burn, n_samples=128):
     mlr_profiles = [axisym.calculate_mlr_profile(mlr_i, radii=r_mge)[1] for mlr_i in mlr]
     lolim, median, uplim = np.percentile(mlr_profiles, [16, 50, 84], axis=0)
 
-    fig, ax = plt.subplots(1,1, figsize=(2.*84./25.4, 4.5))
+    plt.style.use('sciencepaper')
+    fig, ax = plt.subplots(1,1, figsize=(5, 2.5))
 
-    color_label = "#888888"
+    color_label = "#555555"
     # core and half-light radius
-    ax.axvline(x=(0.15*u.arcmin).to(u.arcsec).value, ls='-', lw=1.5, c=color_label)
-    ax.axvline(x=(0.61*u.arcmin).to(u.arcsec).value, ls='-', lw=1.5, c=color_label)
+    ax.axvline(x=(0.15*u.arcmin).to(u.arcsec).value, ls='-', lw=1, c=color_label)
+    ax.axvline(x=(0.61*u.arcmin).to(u.arcsec).value, ls='-', lw=1, c=color_label)
     
-    ax.text((0.15*u.arcmin).to(u.arcsec).value-0.1, 5, 'core radius', rotation=90,  horizontalalignment='right', fontdict={'color': color_label})
-    ax.text((0.61*u.arcmin).to(u.arcsec).value-1, 5, 'half-light radius', rotation=90,  horizontalalignment='right', fontdict={'color': color_label})
+    ax.text((0.15*u.arcmin).to(u.arcsec).value-0.1, 5-0.25, 'core radius', rotation=90,  horizontalalignment='right', fontdict={'color': color_label})
+    ax.text((0.61*u.arcmin).to(u.arcsec).value-1, 5-0.25, 'half-light radius', rotation=90,  horizontalalignment='right', fontdict={'color': color_label})
 
+    lw = 1
     for p in mlr_profiles:
-        ax.plot(r_mge, p, ls='-', lw=1.5, c='#AAAAAA', alpha=0.2)
-    ax.plot(r_mge, median, ls='-', lw=1.5, c='#424874', alpha=1)
-    ax.plot(r_mge, lolim, ls='-', lw=1.5, c='#424874', alpha=1)    
-    ax.plot(r_mge, uplim, ls='-', lw=1.5, c='#424874', alpha=1)    
+        ax.plot(r_mge, p, ls='-', lw=lw, c='#AAAAAA', alpha=0.2)
+    ax.plot(r_mge, median, ls='-', lw=lw, c='#424874', alpha=1)
+    ax.plot(r_mge, lolim, ls='-', lw=lw, c='#424874', alpha=1)    
+    ax.plot(r_mge, uplim, ls='-', lw=lw, c='#424874', alpha=1)    
     #ax.fill_between(r_mge, lolim, uplim, linewidth=0, facecolor='#', alpha=0.2)
 
     ax.set_xscale('log', basex=10)
 
-    ax.set_xlabel(r'$r\,[{\rm arcsec}]$', fontsize=18)
-    ax.set_ylabel(r'$\Upsilon/\frac{\rm M_\odot}{\rm L_\odot}$', fontsize=18)
+    ax.set_xlabel(r'$r$ [arcsec]')
+    ax.set_ylabel(r'$\Upsilon\, [{\rm M_\odot}\,{\rm L_\odot}^{-1}]$')
 
     fig.tight_layout()
-    fig.savefig('ngc6093_mlr_profile.png')
+    fig.savefig('ngc6093_mlr_profile.pdf', bbox_inches='tight')
     
 def plot_kappas(runner, chain):
     bins = 20 #np.arange(-1, 1, 0.05)
@@ -313,7 +313,7 @@ if __name__ == "__main__":
         pos = Runner.read_final_chain(args.chain)
         chain = Runner.read_chain(args.chain)
 
-    params, data = get_observed_data(config['filename_params'], config['v_sys']*u.km/u.s, drop_member=False)
+    params, data = get_observed_data(config['filename_params'], config['v_sys']*u.km/u.s)
     mge_lum, mge_mass = get_mge(config['filename_mge'])
 
     # rotation angle determined with get_simple_rotation.py
@@ -363,13 +363,13 @@ if __name__ == "__main__":
     
     make_mlr_plot(axisym, current_chain, config['n_burn'])
     logging.info("Plotted M/L profile.")
-    #assert False
+    assert False
     
     if args.datafile is not None:
         radial_profile = table.QTable.read(args.datafile, format='ascii.ecsv')
     else:
         logging.info("Generating binned data ...")
-        parameters = axisym.sample_chain(current_chain, n_burn=config['n_burn'], n_samples=20)
+        parameters = axisym.sample_chain(current_chain, n_burn=config['n_burn'], n_samples=100)
         # delta_x = np.median([p["delta_x"].value for p in parameters]) * parameters[0]["delta_x"].unit
         # delta_y = np.median([p["delta_y"].value for p in parameters]) * parameters[0]["delta_y"].unit
         delta_x = [p["delta_x"] for p in parameters]
