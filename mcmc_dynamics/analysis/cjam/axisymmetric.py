@@ -150,22 +150,37 @@ class Axisymmetric(Runner):
 #            elif parameter == 'kappa':
 #                p += np.log(stats.norm(0, 5).pdf(value)).sum()
             elif parameter == 'kappa_x' or parameter =='kappa_y':
-                p += np.log(stats.norm(0, 5).pdf(value))
+                p += np.log(stats.norm.pdf(value, 0, 5))
             elif parameter == 'delta_x' or parameter == 'delta_y':
-                p += np.log(stats.norm(0, 1).pdf(value))
+                p += np.log(stats.norm.pdf(value, 0, 1))
             elif parameter == 'delta_v':
-                p += np.log(stats.norm(0, 1).pdf(value))
+                p += np.log(stats.norm.pdf(value, 0, 1))
             elif parameter == 'mbh':
-                p += np.log(stats.expon(0, 2).pdf(value/1e3))
+                p += np.log(stats.expon.pdf(value/1e3, 0, 2))
 
         return p + super(Axisymmetric, self).lnprior(values=values)
 
     def lnlike(self, values, return_model=False):
         x = np.copy(self.x)
         y = np.copy(self.y)
-
+        
         current_parameters = self.fetch_parameters(values)
-
+                
+        mge_mass = self.mge_mass.data.copy()
+        
+        if "r_bhs" in current_parameters.keys():
+            mass_bhs = current_parameters["m_bhs"]
+            rbhs = current_parameters["r_bhs"]
+            
+            mge_mass.add_row()
+            mge_mass["i"][-1] = mass_bhs/2/np.pi/(rbhs*current_parameters["d"] /u.rad).to("pc")**2
+            mge_mass["s"][-1] = rbhs
+            mge_mass["q"][-1] = 1
+            mge_mass.sort("s")
+            
+            self.x_mlr = self.mge2mlr(mge_mass)
+            current_parameters = self.fetch_parameters(values)
+        
         unique_id = uuid.uuid4()
 
         with printoptions(precision=3):
@@ -198,12 +213,13 @@ class Axisymmetric(Runner):
 
         # calculate JAM model for current parameters
         try:
-            model = cjam.axisymmetric(x, y, self.mge_lum.data, self.mge_mass.data, current_parameters['d'],
+            model = cjam.axisymmetric(x, y, self.mge_lum.data, mge_mass, current_parameters['d'],
                                       beta=current_parameters['beta'], kappa=current_parameters['kappa'],
                                       mscale=current_parameters['mlr'], incl=incl, mbh=current_parameters['mbh'],
                                       rbh=current_parameters['rbh'])
 
-        except ValueError:
+        except ValueError as err:
+            logger.warn("cjam problem", err)
             return -np.inf
 
         logger.debug('CJAM call succeeded for {0}.'.format(unique_id))
@@ -244,6 +260,13 @@ class Axisymmetric(Runner):
                 a = 10
                 b= 140
                 initials[:, i] = (b-a) * np.random.rand(n_walkers) + a
+                
+            # these parameters are used only by the subclass AnalyticalProfile (without an own get_initials).
+            elif row['name'] == 'r_bhs':
+                initials[:, i] = np.random.rand(n_walkers) * row['init']
+            elif row['name'] == 'm_bhs':
+                initials[:, i] = np.random.rand(n_walkers) * row['init']
+                
             else:
                 initials[:, i] = row['init'] * (0.7 + 0.6*np.random.rand(n_walkers))*row['init'].unit
             i += 1
@@ -314,7 +337,6 @@ class Axisymmetric(Runner):
             results = [run_cjam(p) for p in parameters]
 
         good_results = [r for r in results if np.isfinite(r).all()]
-        print("#results: {}, good results {}".format(len(results), len(good_results)))
         results = good_results
         
         # get percentiles of mean velocity and dispersion
@@ -326,7 +348,6 @@ class Axisymmetric(Runner):
         vz_radial = vz[:, semimajor]*u.km/u.s
 
         # for dispersion, average 2nd order moment over data points with same radius
-        print(sigma.shape)
         sameradius = np.arange(x.size) // theta.size
         sigma_radial = [stats.binned_statistic(sameradius, s, 'mean', bins=radii.size)[0] for s in sigma]*u.km/u.s
 

@@ -1,4 +1,5 @@
 import numpy as np
+from scipy import stats
 from astropy import units as u
 from .axisymmetric import Axisymmetric
 
@@ -95,18 +96,7 @@ class AnalyticalProfiles(Axisymmetric):
         super(AnalyticalProfiles, self).__init__(data=data, mge_mass=mge_mass, mge_lum=mge_lum, initials=initials,
                                                  **kwargs)
 
-        # MGE components are assigned the values of the analytical functions at the distances where their contribution
-        # to the overall profiles is max.
-        x = np.logspace(u.Dex(self.mge_mass.data['s']).min().value,
-                        u.Dex(self.mge_mass.data['s']).max().value,
-                        100)*self.mge_mass.data['s'].unit
-        weights = np.zeros((x.size, self.mge_mass.n_components))
-        for i in range(self.mge_mass.n_components):
-            weights[:, i] = self.mge_mass.data['i'][i] * np.exp(-0.5 * (x / self.mge_mass.data['s'][i]) ** 2)
-        weights /= weights.sum(axis=1)[:, np.newaxis]
-        self.x_mlr = x[weights.argmax(axis=0)]
-        self.x_mlr[self.mge_mass.data['s'].argmin()] = 0.
-        self.x_mlr[self.mge_mass.data['s'].argmax()] *= 10
+        self.x_mlr = AnalyticalProfiles.mge2mlr(self.mge_mass.data)
 
         x = np.logspace(u.Dex(self.mge_lum.data['s']).min().value,
                         u.Dex(self.mge_lum.data['s']).max().value,
@@ -118,6 +108,23 @@ class AnalyticalProfiles(Axisymmetric):
         self.x_kappa = x[weights.argmax(axis=0)]
         self.x_kappa[self.mge_lum.data['s'].argmin()] = 0.
         self.x_kappa[self.mge_lum.data['s'].argmax()] *= 10
+        
+    @staticmethod
+    def mge2mlr(mge_mass):
+        # MGE components are assigned the values of the analytical functions at the distances where their contribution
+        # to the overall profiles is max.
+        x = np.logspace(u.Dex(mge_mass['s']).min().value,
+                        u.Dex(mge_mass['s']).max().value,
+                        100)*mge_mass['s'].unit
+        weights = np.zeros((x.size, len(mge_mass)))
+        for i in range(len(mge_mass)):
+            weights[:, i] = mge_mass['i'][i] * np.exp(-0.5 * (x / mge_mass['s'][i]) ** 2)
+        weights /= weights.sum(axis=1)[:, np.newaxis]
+        x_mlr = x[weights.argmax(axis=0)]
+        x_mlr[mge_mass['s'].argmin()] = 0.
+        x_mlr[mge_mass['s'].argmax()] *= 10
+        
+        return x_mlr
 
     @property
     def parameters(self):
@@ -127,7 +134,7 @@ class AnalyticalProfiles(Axisymmetric):
             self._parameters.update({'mlr_0': u.dimensionless_unscaled, 'mlr_t': u.dimensionless_unscaled,
                                      'mlr_inf': u.dimensionless_unscaled, 'r_mlr': u.arcsec,
                                      'kappa_x': u.dimensionless_unscaled, 'kappa_y': u.dimensionless_unscaled,
-                                     'r_kappa': u.arcsec})
+                                     'r_kappa': u.arcsec, 'm_bhs': u.Msun, 'r_bhs': u.arcsec})
         return self._parameters
 
     @property
@@ -155,6 +162,18 @@ class AnalyticalProfiles(Axisymmetric):
                 labels[name] = r'$r_{{\rm \kappa}}$/{0}'.format(latex_string)
             elif name == 'r_mlr':
                 labels[name] = r'$r_{{\rm \Upsilon}}$/{0}'.format(latex_string)
+            elif name == 'mbh':
+                labels[name] = r'$M_{\rm BH}$'
+            elif name == 'delta_x':
+                labels[name] = r'$\Delta x$'
+            elif name == 'delta_y':
+                labels[name] = r'$\Delta y$'
+            elif name == 'delta_v':
+                labels[name] = r'$\Delta v$'
+            elif name == 'm_bhs':
+                labels[name] = r'$M_{\rm BHS}$'
+            elif name == 'r_bhs':
+                labels[name] = r'$r_{\rm BHS}$'
             else:
                 labels[row['name']] = r'${0}/${1}'.format(row['name'], latex_string)
         return labels
@@ -179,7 +198,7 @@ class AnalyticalProfiles(Axisymmetric):
         return parameters
 
     def lnprior(self, values):
-
+        prior = 0
         # add additional checks for parameters of radial profiles
         for parameter, value in dict(zip(self.fitted_parameters, values)).items():
 
@@ -191,12 +210,18 @@ class AnalyticalProfiles(Axisymmetric):
                 v = u.Dex(value, unit=self.initials[i]['init'].unit)
 
             if parameter in ['mlr_0', 'mlr_t', 'mlr_inf'] and v <= 0.1:
-                print(['mlr_0', 'mlr_t', 'mlr_inf'])
                 return -np.inf
             elif parameter == 'r_mlr' and not self.mge_mass.data['s'].min() < v < self.mge_mass.data['s'].max():
-                print('r_mlr')
                 return -np.inf
             elif parameter == 'r_kappa' and not self.mge_lum.data['s'].min() < v < self.mge_lum.data['s'].max():
                 return -np.inf
+            elif parameter == 'r_bhs':
+                my_mean, my_std = 2, 1
+                lower, upper = 0, 20
+                a, b = (lower - my_mean) / my_std, (upper - my_mean) / my_std                
+                prior += stats.truncnorm.logpdf(v.to("arcsec").value, a, b, my_mean, my_std)            
+            elif parameter == 'm_bhs':
+                prior += stats.expon.logpdf(v.to("Msun").value/1e3, 0, 2)
 
-        return super(AnalyticalProfiles, self).lnprior(values=values)
+        return prior + super(AnalyticalProfiles, self).lnprior(values=values)
+    

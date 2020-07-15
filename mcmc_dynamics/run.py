@@ -334,13 +334,14 @@ if __name__ == "__main__":
 
     current_chain = chain if args.plot else sampler.chain
     
-    try:
-        old_run_number = args.chain[:args.chain.find("_")]
-        logging.info("Old run number: {}".format(old_run_number))
-        lnprob_file = "{}_lnprob.pkl".format(old_run_number)
-        _lnprob = axisym.read_chain(lnprob_file)
-    except FileNotFoundError:
-        _lnprob = None
+    if args.chain:
+        try:
+            old_run_number = args.chain[:args.chain.find("_")]
+            logging.info("Old run number: {}".format(old_run_number))
+            lnprob_file = "{}_lnprob.pkl".format(old_run_number)
+            _lnprob = axisym.read_chain(lnprob_file)
+        except FileNotFoundError:
+            _lnprob = None
         
     axisym.plot_chain(current_chain, filename='cjam_chains_{}.png'.format(run_number), lnprob=_lnprob)
     plot_kappas(axisym, current_chain)
