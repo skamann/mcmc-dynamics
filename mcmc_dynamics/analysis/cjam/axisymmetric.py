@@ -165,21 +165,6 @@ class Axisymmetric(Runner):
         y = np.copy(self.y)
         
         current_parameters = self.fetch_parameters(values)
-                
-        mge_mass = self.mge_mass.data.copy()
-        
-        if "r_bhs" in current_parameters.keys():
-            mass_bhs = current_parameters["m_bhs"]
-            rbhs = current_parameters["r_bhs"]
-            
-            mge_mass.add_row()
-            mge_mass["i"][-1] = mass_bhs/2/np.pi/(rbhs*current_parameters["d"] /u.rad).to("pc")**2
-            mge_mass["s"][-1] = rbhs
-            mge_mass["q"][-1] = 1
-            mge_mass.sort("s")
-            
-            self.x_mlr = self.mge2mlr(mge_mass)
-            current_parameters = self.fetch_parameters(values)
         
         unique_id = uuid.uuid4()
 
@@ -198,7 +183,7 @@ class Axisymmetric(Runner):
 
         x -= current_parameters['delta_x']
         y -= current_parameters['delta_y']
-
+        
         # rotating data to determine rotation angle of cluster
         # copied from data_reader.DataReader.rotate()
         theta0 = np.arctan2(current_parameters['kappa_y'], current_parameters['kappa_x'])
@@ -206,8 +191,25 @@ class Axisymmetric(Runner):
         #self.x = self.x * np.cos(theta0) + self.y * np.sin(theta0)
         #self.y = -self.x * np.sin(theta0) + self.y * np.cos(theta0)
         
-        x = x * np.cos(theta0) + y * np.sin(theta0)
-        y = -x * np.sin(theta0) + y * np.cos(theta0)
+        xnew = x * np.cos(theta0) + y * np.sin(theta0)
+        ynew = -x * np.sin(theta0) + y * np.cos(theta0)
+        
+        x = xnew
+        y = ynew        
+
+        # fixing cjam bug where it throws nans for star too close to centre
+
+        xa = x.to(u.arcmin).value
+        ya = y.to(u.arcmin).value
+                
+        xa = np.where((xa < 1e-3) & (xa > 0), 1e-3, xa)
+        xa = np.where((xa > -1e-3) & (xa < 0), -1e-3, xa)
+        
+        ya = np.where((ya < 1e-3) & (ya > 0), 1e-3, ya)
+        ya = np.where((ya > -1e-3) & (ya < 0), -1e-3, ya)        
+        
+        x = xa * u.arcmin
+        y = ya * u.arcmin
         
         self.v += current_parameters['delta_v']
 
@@ -219,7 +221,7 @@ class Axisymmetric(Runner):
                                       rbh=current_parameters['rbh'])
 
         except ValueError as err:
-            logger.warn("cjam problem", err)
+            logging.warn("CJAM returned an error:", err)
             return -np.inf
 
         logger.debug('CJAM call succeeded for {0}.'.format(unique_id))
@@ -230,7 +232,9 @@ class Axisymmetric(Runner):
 
         # calculate likelihood
         if not (v2zz > vz**2).all():
+            logging.error("Strange velocities or nan velocities.")
             return -np.inf
+
         if return_model:
             lnlike = self._calculate_lnlike(v_los=vz, sigma_los=np.sqrt(v2zz - vz**2))
             return lnlike, x, y, vz, v2zz
