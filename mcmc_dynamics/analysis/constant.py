@@ -236,6 +236,7 @@ class ConstantFit(Runner):
         try:
             i = self.fitted_parameters.index('v_maxx')
             j = self.fitted_parameters.index('v_maxy')
+            k = self.fitted_parameters.index('sigma_max')
         except ValueError:
             logger.error("'v_maxx' and/or 'v_maxy' missing in list of fitted parameters.")
             return None
@@ -272,7 +273,8 @@ class ConstantFit(Runner):
         results.loc['median']['theta_0'] += median_theta*u.rad
         
         if return_samples:
-            return results, v_max, _theta
+            sigmas = chain[:, n_burn:, k].flatten()
+            return results, v_max, _theta, sigmas
 
         return results
 

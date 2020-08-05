@@ -139,10 +139,10 @@ def generate_radial_data(data, background, initials, run_number, deltas_x=(0,), 
             sampler = cf(n_walkers=16, n_steps=300)
 
             results = cf.compute_bestfit_values(chain=sampler.chain, n_burn=100)
-            theta_vmax, vmax, theta = cf.compute_theta_vmax(chain=sampler.chain, n_burn=100,
+            theta_vmax, vmax, theta, sigmas = cf.compute_theta_vmax(chain=sampler.chain, n_burn=100,
                                                             return_samples=True)
             
-            samples_df = pd.DataFrame({'theta': theta, 'vmax': vmax})            
+            samples_df = pd.DataFrame({'theta': theta, 'vmax': vmax, 'sigma': sigmas})            
             samples_df['delta_x'] = delta_x
             samples_df['delta_y'] = delta_y
             samples_df['offsetid'] = offi
@@ -225,6 +225,23 @@ def make_mlr_plot(runner, chain, n_burn, n_samples=128):
     
     # get random set of M/L values from chain
     mlr = [p['mlr'] for p in axisym.sample_chain(chain=chain, n_burn=n_burn, n_samples=n_samples)]
+
+    arcsec2pc = 1/3600/360*2*np.pi * 10000 * u.parsec/u.arcsec
+    sigma = (arcsec2pc*axisym.mge_mass.data['s']).to(u.pc)
+    intensity = axisym.mge_mass.data['i']
+    get_mass = lambda mlr: np.sum(mlr*2.*np.pi*sigma**2*intensity)
+    get_meanmlr = lambda mlr: np.sum(mlr*sigma**2*intensity)/np.sum(sigma**2*intensity)
+    
+    masses = [get_mass(mlr_i).value for mlr_i in mlr]
+    means = [get_meanmlr(mlr_i).value for mlr_i in mlr]
+
+    lolim, median, uplim = np.percentile(means, [16, 50, 84])
+    print(lolim, median, uplim)
+    print('M/L: {0} + {1} - {2} M_sun/L_sun'.format(median, uplim - median, median - lolim))
+
+    lolim, median, uplim = np.percentile(masses, [16, 50, 84])
+    print(lolim, median, uplim)
+    print('Cluster mass: {0} + {1} - {2} M_sun'.format(median, uplim - median, median - lolim))
 
     r_mge = np.logspace(-1, 2, 200)*u.arcsec
 
@@ -342,7 +359,8 @@ if __name__ == "__main__":
             _lnprob = axisym.read_chain(lnprob_file)
         except FileNotFoundError:
             _lnprob = None
-        
+    
+
     axisym.plot_chain(current_chain, filename='cjam_chains_{}.png'.format(run_number), lnprob=_lnprob)
     plot_kappas(axisym, current_chain)
     logging.info("Plotted kappas.")
@@ -352,29 +370,28 @@ if __name__ == "__main__":
         axisym.create_triangle_plot(current_chain, n_burn=config['n_burn'], filename='cjam_corner_{}.png'.format(run_number), quantiles=[0.16,0.5, 0.84], show_titles=True)
     except Exception as e:
         logging.warning(e)
-        
-
-    initials = [{'name': 'v_sys', 'init': 0 * u.km/u.s, 'fixed': True},
-                {'name': 'sigma_max', 'init': config['sigma_max'] * u.km/u.s, 'fixed': False},
-                {'name': 'v_maxx', 'init': config['v_maxx'] * u.km/u.s, 'fixed': False},
-                {'name': 'v_maxy', 'init': config['v_maxy'] * u.km/u.s, 'fixed': False}]
 
     logging.info('Creating profile plots ... ')
     #make_radial_plots(runner=axisym, chain=current_chain, data=data, background=background, initials=initials, run_number=run_number, n_burn=config['n_burn'])
     
     make_mlr_plot(axisym, current_chain, config['n_burn'])
     logging.info("Plotted M/L profile.")
-    assert False
+    
+    initials = [{'name': 'v_sys', 'init': 0 * u.km/u.s, 'fixed': True},
+                {'name': 'sigma_max', 'init': config['sigma_max'] * u.km/u.s, 'fixed': False},
+                {'name': 'v_maxx', 'init': config['v_maxx'] * u.km/u.s, 'fixed': False},
+                {'name': 'v_maxy', 'init': config['v_maxy'] * u.km/u.s, 'fixed': False}]
+
     
     if args.datafile is not None:
         radial_profile = table.QTable.read(args.datafile, format='ascii.ecsv')
     else:
         logging.info("Generating binned data ...")
         parameters = axisym.sample_chain(current_chain, n_burn=config['n_burn'], n_samples=100)
-        # delta_x = np.median([p["delta_x"].value for p in parameters]) * parameters[0]["delta_x"].unit
-        # delta_y = np.median([p["delta_y"].value for p in parameters]) * parameters[0]["delta_y"].unit
-        delta_x = [p["delta_x"] for p in parameters]
-        delta_y = [p["delta_y"] for p in parameters]
+        delta_x = (np.median([p["delta_x"].value for p in parameters]) * parameters[0]["delta_x"].unit, )
+        delta_y = (np.median([p["delta_y"].value for p in parameters]) * parameters[0]["delta_y"].unit, )
+        #delta_x = [p["delta_x"] for p in parameters]
+        #delta_y = [p["delta_y"] for p in parameters]
         
         #logging.info("Accounting for shift in centre: deltax = {:.2f}, delta_y = {:.2f}".format(delta_x, delta_y))
         radial_profile = generate_radial_data(data, background, initials, run_number, deltas_x=delta_x, deltas_y=delta_y)

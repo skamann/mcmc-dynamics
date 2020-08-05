@@ -157,6 +157,8 @@ class Axisymmetric(Runner):
                 p += np.log(stats.norm.pdf(value, 0, 1))
             elif parameter == 'mbh':
                 p += np.log(stats.expon.pdf(value/1e3, 0, 2))
+            elif parameter == 'rbh':
+                p += np.log(stats.loguniform.pdf(value, 0.01, 20))
 
         return p + super(Axisymmetric, self).lnprior(values=values)
 
@@ -215,7 +217,7 @@ class Axisymmetric(Runner):
 
         # calculate JAM model for current parameters
         try:
-            model = cjam.axisymmetric(x, y, self.mge_lum.data, mge_mass, current_parameters['d'],
+            model = cjam.axisymmetric(x, y, self.mge_lum.data, self.mge_mass.data, current_parameters['d'],
                                       beta=current_parameters['beta'], kappa=current_parameters['kappa'],
                                       mscale=current_parameters['mlr'], incl=incl, mbh=current_parameters['mbh'],
                                       rbh=current_parameters['rbh'])
@@ -264,13 +266,16 @@ class Axisymmetric(Runner):
                 a = 10
                 b= 140
                 initials[:, i] = (b-a) * np.random.rand(n_walkers) + a
-                
+            elif row['name'] == 'r_mlr':
+                a = 1
+                b= 90
+                initials[:, i] = (b-a) * np.random.rand(n_walkers) + a
             # these parameters are used only by the subclass AnalyticalProfile (without an own get_initials).
-            elif row['name'] == 'r_bhs':
-                initials[:, i] = np.random.rand(n_walkers) * row['init']
+            elif row['name'] == 'rbh':
+                initials[:, i] = 0.01 *row['init'].unit + np.random.rand(n_walkers) * row['init']
             elif row['name'] == 'm_bhs':
                 initials[:, i] = np.random.rand(n_walkers) * row['init']
-                
+              
             else:
                 initials[:, i] = row['init'] * (0.7 + 0.6*np.random.rand(n_walkers))*row['init'].unit
             i += 1
