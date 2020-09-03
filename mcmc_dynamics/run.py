@@ -316,6 +316,8 @@ if __name__ == "__main__":
     parser.add_argument('--name', help='str to use instead of run_number', type=str)
     parser.add_argument('--modelfile', type=str)
     parser.add_argument('--datafile', type=str)
+    parser.add_argument('--lnprob_file', type=str)
+
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
@@ -355,15 +357,17 @@ if __name__ == "__main__":
         try:
             old_run_number = args.chain[:args.chain.find("_")]
             logging.info("Old run number: {}".format(old_run_number))
-            lnprob_file = "{}_lnprob.pkl".format(old_run_number)
+            lnprob_file = args.lnprob_file
             _lnprob = axisym.read_chain(lnprob_file)
         except FileNotFoundError:
+            logging.warn('No file with lnprobs found', lnprob_file)
             _lnprob = None
-    
+
+    _lnprob = _lnprob if args.chain else sampler.lnprobability 
 
     axisym.plot_chain(current_chain, filename='cjam_chains_{}.png'.format(run_number), lnprob=_lnprob)
-    plot_kappas(axisym, current_chain)
-    logging.info("Plotted kappas.")
+    #plot_kappas(axisym, current_chain)
+    #logging.info("Plotted kappas.")
 
     try:
         logging.info('Creating corner plot ...')

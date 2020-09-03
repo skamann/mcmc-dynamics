@@ -138,6 +138,7 @@ class Axisymmetric(Runner):
     def lnprior(self, values):
         p = 0
         current_parameters = self.fetch_parameters(values)
+        
         for parameter, value in current_parameters.items():
             if parameter == 'd' and value <= 0.5*u.kpc:
                 return -np.inf
@@ -150,15 +151,16 @@ class Axisymmetric(Runner):
 #            elif parameter == 'kappa':
 #                p += np.log(stats.norm(0, 5).pdf(value)).sum()
             elif parameter == 'kappa_x' or parameter =='kappa_y':
-                p += np.log(stats.norm.pdf(value, 0, 5))
+                p += stats.norm.logpdf(value, 0, 5)
             elif parameter == 'delta_x' or parameter == 'delta_y':
-                p += np.log(stats.norm.pdf(value, 0, 1))
+                p += stats.norm.logpdf(value, 0, 1)
             elif parameter == 'delta_v':
-                p += np.log(stats.norm.pdf(value, 0, 1))
+                p += stats.norm.logpdf(value, 0, 1)
             elif parameter == 'mbh':
-                p += np.log(stats.expon.pdf(value/1e3, 0, 2))
+                p += stats.expon.logpdf(value/1e3, 0, 2)
             elif parameter == 'rbh':
-                p += np.log(stats.loguniform.pdf(value, 0.01, 20))
+                #p += np.log(stats.loguniform.pdf(value, 0.01, 20))
+                p += stats.lognorm.logpdf(value, 2, scale=np.exp(-1))
 
         return p + super(Axisymmetric, self).lnprior(values=values)
 
@@ -268,7 +270,7 @@ class Axisymmetric(Runner):
                 initials[:, i] = (b-a) * np.random.rand(n_walkers) + a
             elif row['name'] == 'r_mlr':
                 a = 1
-                b= 90
+                b = 90
                 initials[:, i] = (b-a) * np.random.rand(n_walkers) + a
             # these parameters are used only by the subclass AnalyticalProfile (without an own get_initials).
             elif row['name'] == 'rbh':

@@ -1,4 +1,5 @@
 import numpy as np
+from scipy import stats
 from astropy import units as u
 from .axisymmetric import Axisymmetric
 
@@ -179,7 +180,8 @@ class AnalyticalProfiles(Axisymmetric):
         return parameters
 
     def lnprior(self, values):
-
+        p = 0
+        
         # add additional checks for parameters of radial profiles
         for parameter, value in dict(zip(self.fitted_parameters, values)).items():
 
@@ -190,13 +192,30 @@ class AnalyticalProfiles(Axisymmetric):
             except u.core.UnitTypeError:
                 v = u.Dex(value, unit=self.initials[i]['init'].unit)
 
-            if parameter in ['mlr_0', 'mlr_t', 'mlr_inf'] and v <= 0.1:
-                print(['mlr_0', 'mlr_t', 'mlr_inf'])
-                return -np.inf
-            elif parameter == 'r_mlr' and not self.mge_mass.data['s'].min() < v < self.mge_mass.data['s'].max():
-                print('r_mlr')
-                return -np.inf
-            elif parameter == 'r_kappa' and not self.mge_lum.data['s'].min() < v < self.mge_lum.data['s'].max():
+            if parameter in ['mlr_0', 'mlr_t'] and (v.value <= 0.1 or v.value > 100):
                 return -np.inf
 
-        return super(AnalyticalProfiles, self).lnprior(values=values)
+            elif parameter == 'mlr_inf':     
+                my_mean = 4
+                my_std = 0.5
+
+                if value < 0: 
+                    return -np.inf
+                else:
+                    p0 = stats.norm.logpdf(value, loc=my_mean, scale=my_std)
+                    # print('log-prior mlr_inf', p0)
+                    p = p0 + p
+
+            elif parameter == 'r_mlr' and not (self.mge_mass.data['s'].min() < v < self.mge_mass.data['s'].max()):
+                return -np.inf
+
+            elif parameter == 'r_kappa' and not (self.mge_lum.data['s'].min() < v < self.mge_lum.data['s'].max()):
+                return -np.inf
+
+        pradial = p 
+        paxis = super(AnalyticalProfiles, self).lnprior(values=values)
+        
+        #print('pradial', pradial)
+        #print('paxis', paxis)
+        
+        return pradial + paxis
