@@ -142,7 +142,7 @@ class Axisymmetric(Runner):
         for parameter, value in current_parameters.items():
             if parameter == 'd' and value <= 0.5*u.kpc:
                 return -np.inf
-            elif parameter == 'mlr' and (np.less_equal(value, 0.1).all() or np.greater(value, 10).all()):
+            elif parameter == 'mlr' and (np.less_equal(value, 0.1).any() or np.greater(value, 10).any()):
                 return -np.inf
             elif parameter == 'barq' and (value <= 0.2 or value > self.median_q):
                 return -np.inf

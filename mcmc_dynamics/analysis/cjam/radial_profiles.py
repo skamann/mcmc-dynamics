@@ -196,8 +196,8 @@ class AnalyticalProfiles(Axisymmetric):
                 return -np.inf
 
             elif parameter == 'mlr_inf':     
-                my_mean = 4
-                my_std = 0.5
+                my_mean = 3.5
+                my_std = 1.0
 
                 if value < 0: 
                     return -np.inf
