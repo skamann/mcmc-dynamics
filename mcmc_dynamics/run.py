@@ -317,6 +317,7 @@ if __name__ == "__main__":
     parser.add_argument('--modelfile', type=str)
     parser.add_argument('--datafile', type=str)
     parser.add_argument('--lnprob_file', type=str)
+    parser.add_argument('--allcentres', action="store_true")
 
     args = parser.parse_args()
 
@@ -394,18 +395,22 @@ if __name__ == "__main__":
         parameters = axisym.sample_chain(current_chain, n_burn=config['n_burn'], n_samples=100)
         delta_x = (np.median([p["delta_x"].value for p in parameters]) * parameters[0]["delta_x"].unit, )
         delta_y = (np.median([p["delta_y"].value for p in parameters]) * parameters[0]["delta_y"].unit, )
-        #delta_x = [p["delta_x"] for p in parameters]
-        #delta_y = [p["delta_y"] for p in parameters]
         
-        #logging.info("Accounting for shift in centre: deltax = {:.2f}, delta_y = {:.2f}".format(delta_x, delta_y))
+        if args.allcentres:   
+            delta_x = [p["delta_x"] for p in parameters]
+            delta_y = [p["delta_y"] for p in parameters]
+        else:
+            logging.info("Using only median centre offset.")        
+            logging.info("Accounting for shift in centre: deltax = {:.2f}, delta_y = {:.2f}".format(delta_x, delta_y))
+
         radial_profile = generate_radial_data(data, background, initials, run_number, deltas_x=delta_x, deltas_y=delta_y)
     
     if args.modelfile is not None:
         logging.info("Reading model file {}".format(args.modelfile))
         radial_model = table.QTable.read(args.modelfile, format='ascii.ecsv')
     else:
-        radial_model = axisym.create_profiles(current_chain, n_burn=config['n_burn'], n_threads=12, n_samples=20, filename="radial_profiles_{}.csv".format(run_number))
-        
+        radial_model = axisym.create_profiles(current_chain, n_burn=config['n_burn'], n_threads=50, 
+                                              n_samples=100, filename="radial_profiles_{}.csv".format(run_number))       
 
         
     logging.info("Plotting profiles ...")
