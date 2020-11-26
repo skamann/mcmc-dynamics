@@ -3,7 +3,6 @@ import argparse
 import logging
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 from astropy import units as u
 from astropy.table import QTable
 from mcmc_dynamics.analysis import ModelFit, ConstantFit
