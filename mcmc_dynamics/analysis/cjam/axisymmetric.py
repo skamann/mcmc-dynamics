@@ -8,7 +8,7 @@ from scipy import stats
 from astropy import units as u
 from astropy.table import Table
 from ..runner import Runner
-from mcmc_dynamics.utils.files.mge_reader import MgeReader
+from mcmc_dynamics.utils.files import MgeReader, get_nearest_neigbhbour_idx
 
 
 logger = logging.getLogger(__name__)
@@ -62,7 +62,7 @@ def run_cjam(parameters):
 
 class Axisymmetric(Runner):
 
-    def __init__(self, data, mge_mass, mge_lum, initials, **kwargs):
+    def __init__(self, data, mge_mass, mge_lum, initials, mge_coords=None, **kwargs):
         # required observables
         self.x = None
         self.y = None
@@ -80,13 +80,27 @@ class Axisymmetric(Runner):
         #     self.y *= u.arcsec
         #     logger.warning('Missing unit for <y> values. Assuming {0}.'.format(self.y.unit))
 
-        assert isinstance(mge_mass, MgeReader), "'mge_mass' must be instance of {0}".format(MgeReader.__module__)
+
+        assert isinstance(mge_mass, MgeReader) or isinstance(mge_mass, list), "'mge_mass' must be instance of {0}".format(MgeReader.__module__)
         self.mge_mass = mge_mass
 
-        assert isinstance(mge_lum, MgeReader), "'mge_lum' must be instance of {0}".format(MgeReader.__module__)
+        assert isinstance(mge_lum, MgeReader) or isinstance(mge_lum, list), "'mge_lum' must be instance of {0}".format(MgeReader.__module__)
         self.mge_lum = mge_lum
+        
+        assert type(mge_lum) == type(mge_mass), "mge_lum and mge_mass must be of the same type."
+        
+        if isinstance(mge_lum, list):
+            self.use_mge_grid = True
+            assert mge_coords is not None
+            self.mge_coords = mge_coords
+        else:
+            self.use_mge_grid = False
 
-        self.median_q = np.median(self.mge_lum.data['q'])
+        if self.use_mge_grid:
+            idx = get_nearest_neigbhbour_idx(0, 0, self.mge_coords)
+            self.median_q = np.median(self.mge_lum[idx].data['q'])
+        else:
+            self.median_q = np.median(self.mge_lum.data['q'])
 
     @property
     def observables(self):
@@ -121,12 +135,6 @@ class Axisymmetric(Runner):
                 labels[row['name']] = r'$\kappa$'
             elif row['name'] == 'beta':
                 labels[row['name']] = r'$\beta$'
-            elif row['name'] == 'mbh':
-                labels[row['name']] = r'$M_{\rm BH}$'
-            elif row['name'] == 'delta_x':
-                labels[row['name']] = r'$\Delta x$'
-            elif row['name'] == 'delta_y':
-                labels[row['name']] = r'$\Delta y$'
             elif row['name'] == 'delta_v':
                 labels[row['name']] = r'$\Delta v$'
 #            elif row['name'] == 'theta_0':
@@ -188,6 +196,25 @@ class Axisymmetric(Runner):
         x -= current_parameters['delta_x']
         y -= current_parameters['delta_y']
         
+        # if we are using a MGE grid instead of a single MGE profile,
+        # pick the MGE profile corresponding to the grid point closes to the offset
+        
+        """
+        if self.use_mge_grid:
+            mge_lum = self.mge_lum.get_nearest_neigbhbour(-x, y).data 
+            mge_mass = self.mge_mass.get_nearest_neigbhbour(-x, y).data  
+        """
+        if self.use_mge_grid:
+            idx = get_nearest_neigbhbour_idx(-current_parameters['delta_x'].to(u.arcsec).value, 
+                                             current_parameters['delta_y'].to(u.arcsec).value, 
+                                             self.mge_coords)
+                        
+            mge_lum = self.mge_lum[idx].data
+            mge_mass = self.mge_mass[idx].data
+        else:
+            mge_lum = self.mge_lum.data
+            mge_mass = self.mge_mass.data
+        
         # rotating data to determine rotation angle of cluster
         # copied from data_reader.DataReader.rotate()
         theta0 = np.arctan2(current_parameters['kappa_y'], current_parameters['kappa_x'])
@@ -219,7 +246,7 @@ class Axisymmetric(Runner):
 
         # calculate JAM model for current parameters
         try:
-            model = cjam.axisymmetric(x, y, self.mge_lum.data, self.mge_mass.data, current_parameters['d'],
+            model = cjam.axisymmetric(x, y, mge_lum, mge_mass, current_parameters['d'],
                                       beta=current_parameters['beta'], kappa=current_parameters['kappa'],
                                       mscale=current_parameters['mlr'], incl=incl, mbh=current_parameters['mbh'],
                                       rbh=current_parameters['rbh'])
@@ -269,8 +296,8 @@ class Axisymmetric(Runner):
                 b= 140
                 initials[:, i] = (b-a) * np.random.rand(n_walkers) + a
             elif row['name'] == 'r_mlr':
-                a = 1
-                b = 90
+                a = 10
+                b = 120
                 initials[:, i] = (b-a) * np.random.rand(n_walkers) + a
             # these parameters are used only by the subclass AnalyticalProfile (without an own get_initials).
             elif row['name'] == 'rbh':

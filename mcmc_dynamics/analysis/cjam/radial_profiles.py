@@ -2,6 +2,7 @@ import numpy as np
 from scipy import stats
 from astropy import units as u
 from .axisymmetric import Axisymmetric
+from mcmc_dynamics.utils.files import get_nearest_neigbhbour_idx
 
 
 class RadialProfiles(Axisymmetric):
@@ -39,6 +40,13 @@ class RadialProfiles(Axisymmetric):
                 labels[row['name']] = r'$\kappa_{0}$'.format(index)
             elif row['name'] == 'beta':
                 labels[row['name']] = r'$\beta$'
+            elif row['name'] == 'mbh':
+                labels[row['name']] = r'$M_{\rm BH}$'
+            elif row['name'] == 'delta_x':
+                labels[row['name']] = r'$\Delta x$'
+            elif row['name'] == 'delta_y':
+                labels[row['name']] = r'$\Delta y$'
+
             else:
                 labels[row['name']] = r'${0}/${1}'.format(row['name'], latex_string)
         return labels
@@ -91,34 +99,59 @@ class RadialProfiles(Axisymmetric):
 
 class AnalyticalProfiles(Axisymmetric):
 
-    def __init__(self, data, mge_mass, mge_lum, initials, **kwargs):
+    def __init__(self, data, mge_mass, mge_lum, initials, mge_coords=None, **kwargs):
 
-        super(AnalyticalProfiles, self).__init__(data=data, mge_mass=mge_mass, mge_lum=mge_lum, initials=initials,
+        super(AnalyticalProfiles, self).__init__(data=data, mge_mass=mge_mass, mge_lum=mge_lum, 
+                                                 mge_coords=mge_coords, initials=initials,
                                                  **kwargs)
+        
+        self.mge = dict()
+        if self.use_mge_grid:
+            idx = get_nearest_neigbhbour_idx(0, 0, self.mge_coords)
+            self.mge['mass_s'] = self.mge_mass[idx].data['s']
+            self.mge['mass_i'] = self.mge_mass[idx].data['i']
+            self.mge['mass_n_components'] = self.mge_mass[idx].n_components
+            
+            self.mge['lum_s'] = self.mge_lum[idx].data['s']
+            self.mge['lum_i'] = self.mge_lum[idx].data['i']
+            self.mge['lum_n_components'] = self.mge_lum[idx].n_components
+        
+        else:
+            self.mge['mass_s'] = self.mge_mass.data['s']
+            self.mge['mass_i'] = self.mge_mass.data['i'] 
+            self.mge['mass_n_components'] = self.mge_mass.n_components
+            
+            self.mge['lum_s'] = self.mge_lum.data['s']
+            self.mge['lum_i'] = self.mge_lum.data['i']
+            self.mge['lum_n_components'] = self.mge_lum.n_components
 
         # MGE components are assigned the values of the analytical functions at the distances where their contribution
         # to the overall profiles is max.
-        x = np.logspace(u.Dex(self.mge_mass.data['s']).min().value,
-                        u.Dex(self.mge_mass.data['s']).max().value,
-                        100)*self.mge_mass.data['s'].unit
-        weights = np.zeros((x.size, self.mge_mass.n_components))
-        for i in range(self.mge_mass.n_components):
-            weights[:, i] = self.mge_mass.data['i'][i] * np.exp(-0.5 * (x / self.mge_mass.data['s'][i]) ** 2)
+        x = np.logspace(u.Dex(self.mge['mass_s']).min().value,
+                        u.Dex(self.mge['mass_s']).max().value,
+                        100)*self.mge['mass_s'].unit
+        
+        weights = np.zeros((x.size, self.mge['mass_n_components']))
+        for i in range(self.mge['mass_n_components']):
+            weights[:, i] = self.mge['mass_i'][i] * np.exp(-0.5 * (x / self.mge['mass_s'][i]) ** 2)
         weights /= weights.sum(axis=1)[:, np.newaxis]
+        
         self.x_mlr = x[weights.argmax(axis=0)]
-        self.x_mlr[self.mge_mass.data['s'].argmin()] = 0.
-        self.x_mlr[self.mge_mass.data['s'].argmax()] *= 10
+        self.x_mlr[self.mge['mass_s'].argmin()] = 0.
+        self.x_mlr[self.mge['mass_s'].argmax()] *= 10
 
-        x = np.logspace(u.Dex(self.mge_lum.data['s']).min().value,
-                        u.Dex(self.mge_lum.data['s']).max().value,
-                        100)*self.mge_lum.data['s'].unit
-        weights = np.zeros((x.size, self.mge_lum.n_components))
-        for i in range(self.mge_lum.n_components):
-            weights[:, i] = self.mge_lum.data['i'][i] * np.exp(-0.5 * (x / self.mge_lum.data['s'][i]) ** 2)
+        x = np.logspace(u.Dex(self.mge['lum_s']).min().value,
+                        u.Dex(self.mge['lum_s']).max().value,
+                        100)*self.mge['lum_s'].unit
+        
+        weights = np.zeros((x.size, self.mge['lum_n_components']))
+        for i in range(self.mge['lum_n_components']):
+            weights[:, i] = self.mge['lum_i'][i] * np.exp(-0.5 * (x / self.mge['lum_s'][i]) ** 2)
         weights /= weights.sum(axis=1)[:, np.newaxis]
+        
         self.x_kappa = x[weights.argmax(axis=0)]
-        self.x_kappa[self.mge_lum.data['s'].argmin()] = 0.
-        self.x_kappa[self.mge_lum.data['s'].argmax()] *= 10
+        self.x_kappa[self.mge['lum_s'].argmin()] = 0.
+        self.x_kappa[self.mge['lum_s'].argmax()] *= 10
 
     @property
     def parameters(self):
@@ -206,10 +239,10 @@ class AnalyticalProfiles(Axisymmetric):
                     # print('log-prior mlr_inf', p0)
                     p = p0 + p
 
-            elif parameter == 'r_mlr' and not (self.mge_mass.data['s'].min() < v < self.mge_mass.data['s'].max()):
+            elif parameter == 'r_mlr' and not (self.mge['mass_s'].min() < v < self.mge['mass_s'].max()):
                 return -np.inf
 
-            elif parameter == 'r_kappa' and not (self.mge_lum.data['s'].min() < v < self.mge_lum.data['s'].max()):
+            elif parameter == 'r_kappa' and not (self.mge['lum_s'].min() < v < self.mge['lum_s'].max()):
                 return -np.inf
 
         pradial = p 

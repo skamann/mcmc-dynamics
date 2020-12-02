@@ -37,6 +37,30 @@ def get_mge(filename):
     return mge_lum, mge_mass
 
 
+def get_mge_grid(filename):   
+    grid = table.Table.read(filename, format='ascii.ecsv')
+
+    offsets = []
+    mges_lum = []
+    mges_mass = []
+
+    for i in range(grid['gridpoint'].max()):
+        mge = grid[grid['gridpoint'] == i]
+        x, y = mge['dx', 'dy'][0]
+        
+        mge['q'] = 0.9
+        mge_lum = MgeReader(mge, lum=True)
+        mges_lum.append(mge_lum)
+        
+        mge['i'] = mge['i'] * u.solMass / u.solLum
+        mge_mass = MgeReader(mge, lum=False)
+        mges_mass.append(mge_mass)
+        
+        offsets.append((x, y))
+
+    return mges_lum, mges_mass, offsets
+
+
 def get_observed_data(filename, v_sys):
     params = pd.read_csv(filename)
     #params = params[params['Membership'] > 0.7]
@@ -243,29 +267,34 @@ def make_mlr_plot(runner, chain, n_burn, n_samples=128):
     print(lolim, median, uplim)
     print('Cluster mass: {0} + {1} - {2} M_sun'.format(median, uplim - median, median - lolim))
 
-    r_mge = np.logspace(-1, 2, 200)*u.arcsec
+    r_mge = np.logspace(-0.1, 2, 200)*u.arcsec
 
     mlr_profiles = [axisym.calculate_mlr_profile(mlr_i, radii=r_mge)[1] for mlr_i in mlr]
     lolim, median, uplim = np.percentile(mlr_profiles, [16, 50, 84], axis=0)
 
     plt.style.use('sciencepaper')
-    fig, ax = plt.subplots(1,1, figsize=(5, 2.5))
+    fig, ax = plt.subplots(1,1, figsize=(4, 3))
 
-    color_label = "#555555"
+    color_label = "#333333"
     # core and half-light radius
-    ax.axvline(x=(0.15*u.arcmin).to(u.arcsec).value, ls='-', lw=1, c=color_label)
-    ax.axvline(x=(0.61*u.arcmin).to(u.arcsec).value, ls='-', lw=1, c=color_label)
+    ax.axvline(x=(0.15*u.arcmin).to(u.arcsec).value, ls='-', lw=1, c=color_label, zorder=100)
+    ax.axvline(x=(0.61*u.arcmin).to(u.arcsec).value, ls='-', lw=1, c=color_label, zorder=100)
     
-    ax.text((0.15*u.arcmin).to(u.arcsec).value-0.1, 5-0.25, 'core radius', rotation=90,  horizontalalignment='right', fontdict={'color': color_label})
-    ax.text((0.61*u.arcmin).to(u.arcsec).value-1, 5-0.25, 'half-light radius', rotation=90,  horizontalalignment='right', fontdict={'color': color_label})
+    ax.text((0.15*u.arcmin).to(u.arcsec).value-0.1, 4-0.25, 'core radius', rotation=90,  horizontalalignment='right', fontdict={'color': color_label})
+    ax.text((0.61*u.arcmin).to(u.arcsec).value-1, 4-0.25, 'half-light radius', rotation=90,  horizontalalignment='right', fontdict={'color': color_label})
 
     lw = 1
-    for p in mlr_profiles:
-        ax.plot(r_mge, p, ls='-', lw=lw, c='#AAAAAA', alpha=0.2)
-    ax.plot(r_mge, median, ls='-', lw=lw, c='#424874', alpha=1)
-    ax.plot(r_mge, lolim, ls='-', lw=lw, c='#424874', alpha=1)    
-    ax.plot(r_mge, uplim, ls='-', lw=lw, c='#424874', alpha=1)    
-    #ax.fill_between(r_mge, lolim, uplim, linewidth=0, facecolor='#', alpha=0.2)
+    #for p in mlr_profiles:
+    #    ax.plot(r_mge, p, ls='-', lw=lw, c='#AAAAAA', alpha=0.2)
+    
+    ax.plot(r_mge, median, ls='-', lw=1.5*lw, c='#424874', alpha=1)
+    #ax.plot(r_mge, lolim, ls='-', lw=1.5*lw, c='#424874', alpha=1)    
+    #ax.plot(r_mge, uplim, ls='-', lw=1.5*lw, c='#424874', alpha=1)    
+    ax.fill_between(r_mge, lolim, uplim, facecolor='#424874', alpha=0.5)
+    lolim2, uplim2 = np.percentile(mlr_profiles, [4.55, 95.45], axis=0)
+    lolim3, uplim3 = np.percentile(mlr_profiles, [0.27, 99.7], axis=0)
+    ax.fill_between(r_mge, lolim2, uplim2, facecolor='#424874', alpha=0.25)
+    ax.fill_between(r_mge, lolim3, uplim3, facecolor='#424874', alpha=0.125)
 
     ax.set_xscale('log', basex=10)
 
@@ -334,7 +363,9 @@ if __name__ == "__main__":
         chain = Runner.read_chain(args.chain)
 
     params, data = get_observed_data(config['filename_params'], config['v_sys']*u.km/u.s)
-    mge_lum, mge_mass = get_mge(config['filename_mge'])
+    
+    mge_filename = config['filename_mge']
+    mge_lum, mge_mass, mge_coords = get_mge_grid(mge_filename)
 
     # rotation angle determined with get_simple_rotation.py
     # data = data.rotate(config['theta_0'])
@@ -344,7 +375,7 @@ if __name__ == "__main__":
                                        guess=False, header_start=96)
     background = SingleStars(v=background_data['Vr']*u.km/u.s - config['v_sys']*u.km/u.s)
 
-    axisym = AnalyticalProfiles(data, mge_mass=mge_mass, mge_lum=mge_lum,
+    axisym = AnalyticalProfiles(data, mge_mass=mge_mass, mge_lum=mge_lum, mge_coords=mge_coords,
                                 initials=initials, background=background, seed=config['seed'])
 
     if not args.plot:
@@ -367,8 +398,11 @@ if __name__ == "__main__":
     _lnprob = _lnprob if args.chain else sampler.lnprobability 
 
     axisym.plot_chain(current_chain, filename='cjam_chains_{}.png'.format(run_number), lnprob=_lnprob)
-    #plot_kappas(axisym, current_chain)
-    #logging.info("Plotted kappas.")
+    axisym.plot_chain(current_chain, filename='cjam_chains_{}_median.png'.format(run_number), plot_median=True)
+    
+    # assert False
+    # plot_kappas(axisym, current_chain)
+    # logging.info("Plotted kappas.")
 
     try:
         logging.info('Creating corner plot ...')
@@ -401,7 +435,7 @@ if __name__ == "__main__":
             delta_y = [p["delta_y"] for p in parameters]
         else:
             logging.info("Using only median centre offset.")        
-            logging.info("Accounting for shift in centre: deltax = {:.2f}, delta_y = {:.2f}".format(delta_x, delta_y))
+            logging.info("Accounting for shift in centre: deltax = {:.2f}, delta_y = {:.2f}".format(delta_x[0], delta_y[0]))
 
         radial_profile = generate_radial_data(data, background, initials, run_number, deltas_x=delta_x, deltas_y=delta_y)
     

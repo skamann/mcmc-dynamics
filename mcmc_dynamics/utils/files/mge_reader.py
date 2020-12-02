@@ -121,3 +121,12 @@ class MgeReader(object):
             mge += row['i']*np.exp((x**2 + y**2/row['q']**2)/(-2.*row['s']**2))
 
         return mge
+    
+    
+def _get_dist(x, y, _x, _y):
+    return np.sqrt( (x - _x)**2 + (y - _y)**2 )
+    
+def get_nearest_neigbhbour_idx(x, y, coords):
+    dists = np.asarray([_get_dist(x, y, _x, _y,) for (_x, _y) in coords])
+    return dists.argmin()
+    

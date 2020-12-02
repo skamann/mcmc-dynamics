@@ -3,7 +3,7 @@ import pickle
 import warnings
 import matplotlib.pyplot as plt
 import numpy as np
-from multiprocessing import Pool
+from pathos.multiprocessing import Pool
 import corner
 import emcee
 from matplotlib import gridspec
@@ -200,6 +200,8 @@ class Runner(object):
                     v = u.Quantity(values[i], unit=row['init'].unit)
                 except u.core.UnitTypeError:
                     v = u.Dex(values[i], unit=row['init'].unit)
+                except u.core.UnitConversionError:
+                    v = values[i] * row['init'].unit
                 i += 1
             current_parameters[row['name']] = v
 
@@ -638,7 +640,7 @@ class Runner(object):
                 labels.append(self.parameter_labels[row['name']])
         return labels
 
-    def plot_chain(self, chain, filename='chains.png', true_values=None, figure=None, lnprob=None):
+    def plot_chain(self, chain, filename='chains.png', true_values=None, figure=None, lnprob=None, plot_median=False):
         """
         Create a plot showing the current status of the MCMC chains.
 
@@ -707,6 +709,12 @@ class Runner(object):
                 line = axes[i].add_collection(lc)
             axes[i].set_ylim(samples[..., i].min(), samples[..., i].max())
             axes[i].yaxis.set_major_locator(MaxNLocator(5))
+            
+            if plot_median:
+                axes[i].plot(np.percentile(samples[..., i].T, 16, axis=1), color='tab:red', alpha=1, lw=1.5)
+                axes[i].plot(np.percentile(samples[..., i].T, 84, axis=1), color='tab:red', alpha=1, lw=1.5)
+                axes[i].plot(np.median(samples[..., i].T, axis=1), color='tab:red', alpha=1, lw=1.5)
+            
             if true_values is not None:
                 axes[i].axhline(true_values[i], color="#888888", lw=2)
             axes[i].set_ylabel(self.labels[i])
