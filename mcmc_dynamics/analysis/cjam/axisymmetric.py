@@ -211,6 +211,8 @@ class Axisymmetric(Runner):
                         
             mge_lum = self.mge_lum[idx].data
             mge_mass = self.mge_mass[idx].data
+            gridpoint = mge_lum['gridpoint'].max()
+            logger.info("delta_x: {:.3f}, delta_y: {:.3f}, gridpoint: {}".format(current_parameters['delta_x'], current_parameters['delta_y'], gridpoint))
         else:
             mge_lum = self.mge_lum.data
             mge_mass = self.mge_mass.data
