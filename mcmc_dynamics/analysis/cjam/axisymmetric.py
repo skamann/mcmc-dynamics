@@ -209,10 +209,15 @@ class Axisymmetric(Runner):
                                              current_parameters['delta_y'].to(u.arcsec).value, 
                                              self.mge_coords)
                         
-            mge_lum = self.mge_lum[idx].data
-            mge_mass = self.mge_mass[idx].data
+            mge_lum = self.mge_lum[idx].data.copy()
+            mge_mass = self.mge_mass[idx].data.copy()
             gridpoint = mge_lum['gridpoint'].max()
             logger.info("delta_x: {:.3f}, delta_y: {:.3f}, gridpoint: {}".format(current_parameters['delta_x'], current_parameters['delta_y'], gridpoint))
+            
+            cols_to_remove = ['gridpoint', 'dx', 'dy']
+            mge_lum.remove_columns(cols_to_remove)
+            mge_mass.remove_columns(cols_to_remove)
+            
         else:
             mge_lum = self.mge_lum.data
             mge_mass = self.mge_mass.data
