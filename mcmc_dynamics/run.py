@@ -365,7 +365,11 @@ if __name__ == "__main__":
     params, data = get_observed_data(config['filename_params'], config['v_sys']*u.km/u.s)
     
     mge_filename = config['filename_mge']
-    mge_lum, mge_mass, mge_coords = get_mge_grid(mge_filename)
+    try:
+        mge_lum, mge_mass, mge_coords = get_mge_grid(mge_filename)
+    except KeyError:
+        mge_lum, mge_mass = get_mge(mge_filename)
+        mge_coords = None
 
     # rotation angle determined with get_simple_rotation.py
     # data = data.rotate(config['theta_0'])
