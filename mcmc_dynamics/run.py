@@ -378,19 +378,9 @@ if __name__ == "__main__":
     background_data = table.Table.read(config['filename_background'], format='ascii.commented_header',
                                        guess=False, header_start=96)
     background = SingleStars(v=background_data['Vr']*u.km/u.s - config['v_sys']*u.km/u.s)
-    
-    pickle.dump(background, open('background.pkl', 'wb'))
-    pickle.dump(data, open('data.pkl', 'wb'))
-    pickle.dump(initials, open('initials.pkl', 'wb'))
-    pickle.dump(mge_mass, open('mge_mass.pkl', 'wb'))
-    pickle.dump(mge_lum, open('mge_lum.pkl', 'wb'))
-    pickle.dump(mge_coords, open('mge_coords.pkl', 'wb'))
 
-    #axisym = AnalyticalProfiles(data, mge_mass=mge_mass, mge_lum=mge_lum, mge_coords=mge_coords,
-    #                            initials=initials, background=background, seed=config['seed'])
-    
-    axisym = AnalyticalProfiles(data=None, mge_mass=None, mge_lum=None, mge_coords=None,
-                                initials=None, background=None, seed=config['seed'])
+    axisym = AnalyticalProfiles(data, mge_mass=mge_mass, mge_lum=mge_lum, mge_coords=mge_coords,
+                                initials=initials, background=background, seed=config['seed'])
 
     if not args.plot:
         logging.info('Starting to run MCMC chain ...')
