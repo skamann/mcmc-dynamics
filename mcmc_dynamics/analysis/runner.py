@@ -39,7 +39,11 @@ class Runner(object):
         """
         # check if any unsupported keyword arguments were provided
         assert not kwargs, "Unknown keyword arguments provided: {0}".format(kwargs)
-
+        
+        data = pickle.load(open('data.pkl', 'rb'))
+        initials = pickle.load(open('initials.pkl', 'rb'))
+        background = pickle.load(open('background.pkl', 'rb'))
+        
         # Reproducible results!
         np.random.seed(seed)
 

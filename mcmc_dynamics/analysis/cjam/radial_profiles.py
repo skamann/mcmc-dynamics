@@ -4,6 +4,8 @@ from astropy import units as u
 from .axisymmetric import Axisymmetric
 from mcmc_dynamics.utils.files import get_nearest_neigbhbour_idx
 
+import pickle
+
 
 class RadialProfiles(Axisymmetric):
 

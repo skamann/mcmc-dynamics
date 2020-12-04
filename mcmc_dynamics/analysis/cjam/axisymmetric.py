@@ -10,6 +10,7 @@ from astropy.table import Table
 from ..runner import Runner
 from mcmc_dynamics.utils.files import MgeReader, get_nearest_neigbhbour_idx
 
+import pickle
 
 logger = logging.getLogger(__name__)
 
@@ -79,9 +80,12 @@ class Axisymmetric(Runner):
         # if self.y.unit.is_unity():
         #     self.y *= u.arcsec
         #     logger.warning('Missing unit for <y> values. Assuming {0}.'.format(self.y.unit))
+        
+        mge_mass = pickle.load(open("mge_mass.pkl", "rb")) 
+        mge_lum = pickle.load(open("mge_lum.pkl", "rb")) 
+        mge_coords = pickle.load(open("mge_coords.pkl", "rb")) 
 
-
-        assert isinstance(mge_mass, MgeReader) or isinstance(mge_mass, list), "'mge_mass' must be instance of {0}".format(MgeReader.__module__)
+        #assert isinstance(mge_mass, MgeReader) or isinstance(mge_mass, list), "'mge_mass' must be instance of {0}".format(MgeReader.__module__)
         self.mge_mass = mge_mass
 
         assert isinstance(mge_lum, MgeReader) or isinstance(mge_lum, list), "'mge_lum' must be instance of {0}".format(MgeReader.__module__)
@@ -209,14 +213,14 @@ class Axisymmetric(Runner):
                                              current_parameters['delta_y'].to(u.arcsec).value, 
                                              self.mge_coords)
                         
-            mge_lum = self.mge_lum[idx].data.copy()
-            mge_mass = self.mge_mass[idx].data.copy()
+            mge_lum = self.mge_lum[idx].data
+            mge_mass = self.mge_mass[idx].data
             gridpoint = mge_lum['gridpoint'].max()
             logger.info("delta_x: {:.3f}, delta_y: {:.3f}, gridpoint: {}".format(current_parameters['delta_x'], current_parameters['delta_y'], gridpoint))
             
-            cols_to_remove = ['gridpoint', 'dx', 'dy']
-            mge_lum.remove_columns(cols_to_remove)
-            mge_mass.remove_columns(cols_to_remove)
+            #cols_to_remove = ['gridpoint', 'dx', 'dy']
+            #mge_lum.remove_columns(cols_to_remove)
+            #mge_mass.remove_columns(cols_to_remove)
             
         else:
             mge_lum = self.mge_lum.data
@@ -273,11 +277,12 @@ class Axisymmetric(Runner):
             logging.error("Strange velocities or nan velocities.")
             return -np.inf
 
+        lnlike = self._calculate_lnlike(v_los=vz, sigma_los=np.sqrt(v2zz - vz**2))
+
         if return_model:
-            lnlike = self._calculate_lnlike(v_los=vz, sigma_los=np.sqrt(v2zz - vz**2))
             return lnlike, x, y, vz, v2zz
         
-        return self._calculate_lnlike(v_los=vz, sigma_los=np.sqrt(v2zz - vz**2))
+        return lnlike
 
     def get_initials(self, n_walkers):
         initials = np.zeros((n_walkers, self.n_fitted_parameters))
