@@ -8,7 +8,7 @@ from scipy import stats
 from astropy import units as u
 from astropy.table import Table
 from ..runner import Runner
-from mcmc_dynamics.utils.files import MgeReader, get_nearest_neigbhbour_idx
+from mcmc_dynamics.utils.files import MgeReader, get_nearest_neigbhbour_idx, get_mge, get_nearest_neigbhbour_idx2
 
 
 logger = logging.getLogger(__name__)
@@ -62,7 +62,7 @@ def run_cjam(parameters):
 
 class Axisymmetric(Runner):
 
-    def __init__(self, data, mge_mass, mge_lum, initials, mge_coords=None, **kwargs):
+    def __init__(self, data, mge_mass, mge_lum, initials, mge_coords=None, mge_files=None, **kwargs):
         # required observables
         self.x = None
         self.y = None
@@ -80,7 +80,7 @@ class Axisymmetric(Runner):
         #     self.y *= u.arcsec
         #     logger.warning('Missing unit for <y> values. Assuming {0}.'.format(self.y.unit))
 
-
+        """
         assert isinstance(mge_mass, MgeReader) or isinstance(mge_mass, list), "'mge_mass' must be instance of {0}".format(MgeReader.__module__)
         self.mge_mass = mge_mass
 
@@ -88,17 +88,22 @@ class Axisymmetric(Runner):
         self.mge_lum = mge_lum
         
         assert type(mge_lum) == type(mge_mass), "mge_lum and mge_mass must be of the same type."
+        """
+        self.use_mge_grid = True
+        self.mge_files = mge_files
         
+        """
         if isinstance(mge_lum, list):
-            self.use_mge_grid = True
+            self.use_mge_grid = True    
             assert mge_coords is not None
             self.mge_coords = mge_coords
         else:
             self.use_mge_grid = False
-
+        """
         if self.use_mge_grid:
-            idx = get_nearest_neigbhbour_idx(0, 0, self.mge_coords)
-            self.median_q = np.median(self.mge_lum[idx].data['q'])
+            idx = get_nearest_neigbhbour_idx2(0, 0, self.mge_files)
+            _mge_lum, _ = get_mge(self.mge_files[idx])
+            self.median_q = np.median(_mge_lum.data['q'])
         else:
             self.median_q = np.median(self.mge_lum.data['q'])
 
@@ -205,18 +210,14 @@ class Axisymmetric(Runner):
             mge_mass = self.mge_mass.get_nearest_neigbhbour(-x, y).data  
         """
         if self.use_mge_grid:
-            idx = get_nearest_neigbhbour_idx(-current_parameters['delta_x'].to(u.arcsec).value, 
+            idx = get_nearest_neigbhbour_idx2(-current_parameters['delta_x'].to(u.arcsec).value, 
                                              current_parameters['delta_y'].to(u.arcsec).value, 
-                                             self.mge_coords)
-                        
-            mge_lum = self.mge_lum[idx].data.copy()
-            mge_mass = self.mge_mass[idx].data.copy()
+                                             self.mge_files)
+            mge_lum, mge_mass = get_mge(self.mge_files[idx])
+            mge_lum, mge_mass = mge_lum.data, mge_mass.data
+            
             gridpoint = mge_lum['gridpoint'].max()
             logger.info("delta_x: {:.3f}, delta_y: {:.3f}, gridpoint: {}".format(current_parameters['delta_x'], current_parameters['delta_y'], gridpoint))
-            
-            cols_to_remove = ['gridpoint', 'dx', 'dy']
-            mge_lum.remove_columns(cols_to_remove)
-            mge_mass.remove_columns(cols_to_remove)
             
         else:
             mge_lum = self.mge_lum.data

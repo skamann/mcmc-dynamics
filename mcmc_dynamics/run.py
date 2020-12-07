@@ -37,28 +37,42 @@ def get_mge(filename):
     return mge_lum, mge_mass
 
 
-def get_mge_grid(filename):   
+def get_mge_grid(filename, load=False):   
     grid = table.Table.read(filename, format='ascii.ecsv')
 
     offsets = []
     mges_lum = []
     mges_mass = []
+    files = {}
 
     for i in range(grid['gridpoint'].max()):
         mge = grid[grid['gridpoint'] == i]
+        
         x, y = mge['dx', 'dy'][0]
+        x = np.round(x, 3)
+        y = np.round(y, 3)
         
-        mge['q'] = 0.9
-        mge_lum = MgeReader(mge, lum=True)
-        mges_lum.append(mge_lum)
+        name = "mge_{}_{}.ecsv".format(x,y)
+        mge.write(name, format='ascii.ecsv')
         
-        mge['i'] = mge['i'] * u.solMass / u.solLum
-        mge_mass = MgeReader(mge, lum=False)
-        mges_mass.append(mge_mass)
+        files[(x,y)] = name
         
+        if load:
+            mge['q'] = 0.9
+            mge_lum = MgeReader(mge, lum=True)
+            mges_lum.append(mge_lum)
+            
+            mge['i'] = mge['i'] * u.solMass / u.solLum
+            mge_mass = MgeReader(mge, lum=False)
+            mges_mass.append(mge_mass)
+            
         offsets.append((x, y))
 
-    return mges_lum, mges_mass, offsets
+    if load:
+        return mges_lum, mges_mass, offsets
+    
+    else:
+        return files
 
 
 def get_observed_data(filename, v_sys):
@@ -366,7 +380,9 @@ if __name__ == "__main__":
     
     mge_filename = config['filename_mge']
     try:
-        mge_lum, mge_mass, mge_coords = get_mge_grid(mge_filename)
+        #mge_lum, mge_mass, mge_coords = get_mge_grid(mge_filename, load=False)
+        mge_files = get_mge_grid(mge_filename, load=False)
+        mge_lum, mge_mass, mge_coords = None, None, None
     except KeyError:
         mge_lum, mge_mass = get_mge(mge_filename)
         mge_coords = None
@@ -379,7 +395,7 @@ if __name__ == "__main__":
                                        guess=False, header_start=96)
     background = SingleStars(v=background_data['Vr']*u.km/u.s - config['v_sys']*u.km/u.s)
 
-    axisym = AnalyticalProfiles(data, mge_mass=mge_mass, mge_lum=mge_lum, mge_coords=mge_coords,
+    axisym = AnalyticalProfiles(data, mge_mass=mge_mass, mge_lum=mge_lum, mge_coords=mge_coords, mge_files=mge_files,
                                 initials=initials, background=background, seed=config['seed'])
 
     if not args.plot:

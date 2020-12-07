@@ -2,7 +2,7 @@ import numpy as np
 from scipy import stats
 from astropy import units as u
 from .axisymmetric import Axisymmetric
-from mcmc_dynamics.utils.files import get_nearest_neigbhbour_idx
+from mcmc_dynamics.utils.files import get_nearest_neigbhbour_idx, get_nearest_neigbhbour_idx2, get_mge
 
 
 class RadialProfiles(Axisymmetric):
@@ -99,15 +99,19 @@ class RadialProfiles(Axisymmetric):
 
 class AnalyticalProfiles(Axisymmetric):
 
-    def __init__(self, data, mge_mass, mge_lum, initials, mge_coords=None, **kwargs):
+    def __init__(self, data, mge_mass, mge_lum, initials, mge_coords=None, mge_files=None, **kwargs):
 
         super(AnalyticalProfiles, self).__init__(data=data, mge_mass=mge_mass, mge_lum=mge_lum, 
-                                                 mge_coords=mge_coords, initials=initials,
+                                                 mge_coords=mge_coords, mge_files=mge_files, initials=initials,
                                                  **kwargs)
         
         self.mge = dict()
         if self.use_mge_grid:
-            idx = get_nearest_neigbhbour_idx(0, 0, self.mge_coords)
+            idx = get_nearest_neigbhbour_idx2(0, 0, self.mge_files)
+            mge_lum, mge_mass = get_mge(self.mge_files[idx])
+            self.mge_mass = {idx: mge_mass}
+            self.mge_lum = {idx: mge_lum}
+            
             self.mge['mass_s'] = self.mge_mass[idx].data['s']
             self.mge['mass_i'] = self.mge_mass[idx].data['i']
             self.mge['mass_n_components'] = self.mge_mass[idx].n_components
