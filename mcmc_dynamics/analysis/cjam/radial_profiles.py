@@ -182,7 +182,7 @@ class AnalyticalProfiles(Axisymmetric):
                 labels[row['name']] = r'${0}/${1}'.format(row['name'], latex_string)
         return labels
 
-    def fetch_parameters(self, values, return_rkappa=False):
+    def fetch_parameters(self, values, return_rkappa=False, return_mge=False):
 
         parameters = super(AnalyticalProfiles, self).fetch_parameters(values)
         
@@ -208,16 +208,16 @@ class AnalyticalProfiles(Axisymmetric):
         if return_rkappa:
             return parameters, rkappa
         
+        if return_mge:
+            return parameters, mge_lum, mge_mass
+        
         return parameters
 
     def lnprior(self, values):
         p = 0
         
         if self.use_mge_grid:
-            idx = get_nearest_neigbhbour_idx2(parameters['delta_x'].to(u.arcsec).value, 
-                                            -parameters['delta_y'].to(u.arcsec).value, 
-                                            self.mge_files)
-            mge_lum, mge_mass = get_mge(self.mge_files[idx])
+            _, mge_lum, mge_mass = self.fetch_parameters(values, return_mge=True)
         
         # add additional checks for parameters of radial profiles
         for parameter, value in dict(zip(self.fitted_parameters, values)).items():
