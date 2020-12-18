@@ -190,7 +190,7 @@ class AnalyticalProfiles(Axisymmetric):
             idx = get_nearest_neigbhbour_idx2(parameters['delta_x'].to(u.arcsec).value, 
                                             -parameters['delta_y'].to(u.arcsec).value, 
                                             self.mge_files)
-            self.mge_lum, self.mge_mass = get_mge(self.mge_files[idx])
+            mge_lum, mge_mass = get_mge(self.mge_files[idx])
             
         _x_mlr = AnalyticalProfiles.calculate_x_values(self.mge_lum)
         _x_kappa = AnalyticalProfiles.calculate_x_values(self.mge_mass)
@@ -214,8 +214,10 @@ class AnalyticalProfiles(Axisymmetric):
         p = 0
         
         if self.use_mge_grid:
-            # this simply sets self.mge_lum and self.mge_mass 
-            _ = self.fetch_parameters(values)
+            idx = get_nearest_neigbhbour_idx2(parameters['delta_x'].to(u.arcsec).value, 
+                                            -parameters['delta_y'].to(u.arcsec).value, 
+                                            self.mge_files)
+            mge_lum, mge_mass = get_mge(self.mge_files[idx])
         
         # add additional checks for parameters of radial profiles
         for parameter, value in dict(zip(self.fitted_parameters, values)).items():
@@ -243,12 +245,12 @@ class AnalyticalProfiles(Axisymmetric):
                     # print('log-prior mlr_inf', p0)
                     p = p0 + p
 
-            elif parameter == 'r_mlr' and not (self.mge_mass.data['s'].min() < v < self.mge_mass.data['s'].max()):
-                print(parameter, value, self.mge_mass.data['s'].min(), self.mge_mass.data['s'].max())
+            elif parameter == 'r_mlr' and not (mge_mass.data['s'].min() < v < mge_mass.data['s'].max()):
+                print(parameter, value, mge_mass.data['s'].min(), mge_mass.data['s'].max())
                 return -np.inf
 
-            elif parameter == 'r_kappa' and not (self.mge_lum.data['s'].min() < v < self.mge_lum.data['s'].max()):
-                print(parameter, value, self.mge_lum.data['s'].min(), self.mge_lum.data['s'].max())
+            elif parameter == 'r_kappa' and not (mge_lum.data['s'].min() < v < mge_lum.data['s'].max()):
+                print(parameter, value, mge_lum.data['s'].min(), mge_lum.data['s'].max())
                 return -np.inf
 
         pradial = p 
