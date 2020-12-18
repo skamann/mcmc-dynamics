@@ -8,7 +8,7 @@ from scipy import stats
 from astropy import units as u
 from astropy.table import Table
 from ..runner import Runner
-from mcmc_dynamics.utils.files import MgeReader, get_nearest_neigbhbour_idx, get_mge, get_nearest_neigbhbour_idx2
+from mcmc_dynamics.utils.files import MgeReader, get_mge, get_nearest_neigbhbour_idx2
 
 
 logger = logging.getLogger(__name__)
@@ -104,6 +104,7 @@ class Axisymmetric(Runner):
             self.median_q = np.median(_mge_lum.data['q'])
         else:
             self.median_q = np.median(self.mge_lum.data['q'])
+            
 
     @property
     def observables(self):
@@ -299,11 +300,11 @@ class Axisymmetric(Runner):
             elif row['name'] == 'delta_v':
                 initials[:, i] = 2*row['init']*np.random.rand(n_walkers) - row['init']
             elif row['name'] == 'r_kappa':
-                a = 1
+                a = 10
                 b= 150
                 initials[:, i] = (b-a) * np.random.rand(n_walkers) + a
             elif row['name'] == 'r_mlr':
-                a = 1
+                a = 10
                 b = 150
                 initials[:, i] = (b-a) * np.random.rand(n_walkers) + a
             # these parameters are used only by the subclass AnalyticalProfile (without an own get_initials).
