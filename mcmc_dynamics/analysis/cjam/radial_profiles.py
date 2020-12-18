@@ -230,6 +230,7 @@ class AnalyticalProfiles(Axisymmetric):
                 v = u.Dex(value, unit=self.initials[i]['init'].unit)
 
             if parameter in ['mlr_0', 'mlr_t'] and (v.value <= 0.1 or v.value > 100):
+                print(parameter, v)
                 return -np.inf
 
             elif parameter == 'mlr_inf':     
@@ -237,6 +238,7 @@ class AnalyticalProfiles(Axisymmetric):
                 my_std = 1.0
 
                 if value < 0: 
+                    print(parameter, v)
                     return -np.inf
                 else:
                     p0 = stats.norm.logpdf(value, loc=my_mean, scale=my_std)
@@ -244,9 +246,11 @@ class AnalyticalProfiles(Axisymmetric):
                     p = p0 + p
 
             elif parameter == 'r_mlr' and not (self.mge['mass_s'].min() < v < self.mge['mass_s'].max()):
+                print(parameter, value)
                 return -np.inf
 
             elif parameter == 'r_kappa' and not (self.mge['lum_s'].min() < v < self.mge['lum_s'].max()):
+                print(parameter, value, self.mge['lum_s'].min(), self.mge['lum_s'].max())
                 return -np.inf
 
         pradial = p 

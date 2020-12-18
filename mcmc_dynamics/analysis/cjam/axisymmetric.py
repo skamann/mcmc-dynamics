@@ -80,18 +80,16 @@ class Axisymmetric(Runner):
         #     self.y *= u.arcsec
         #     logger.warning('Missing unit for <y> values. Assuming {0}.'.format(self.y.unit))
 
-        """
-        assert isinstance(mge_mass, MgeReader) or isinstance(mge_mass, list), "'mge_mass' must be instance of {0}".format(MgeReader.__module__)
+        #assert isinstance(mge_mass, MgeReader) or isinstance(mge_mass, list), "'mge_mass' must be instance of {0}".format(MgeReader.__module__)
         self.mge_mass = mge_mass
 
-        assert isinstance(mge_lum, MgeReader) or isinstance(mge_lum, list), "'mge_lum' must be instance of {0}".format(MgeReader.__module__)
+        #assert isinstance(mge_lum, MgeReader) or isinstance(mge_lum, list), "'mge_lum' must be instance of {0}".format(MgeReader.__module__)
         self.mge_lum = mge_lum
         
-        assert type(mge_lum) == type(mge_mass), "mge_lum and mge_mass must be of the same type."
-        """
-        self.use_mge_grid = True
+        #assert type(mge_lum) == type(mge_mass), "mge_lum and mge_mass must be of the same type."
+
+        self.use_mge_grid = mge_files is not None
         self.mge_files = mge_files
-        
         """
         if isinstance(mge_lum, list):
             self.use_mge_grid = True    
@@ -170,7 +168,8 @@ class Axisymmetric(Runner):
             elif parameter == 'delta_v':
                 p += stats.norm.logpdf(value, 0, 1)
             elif parameter == 'mbh':
-                p += stats.expon.logpdf(value/1e3, 0, 2)
+                #p += stats.expon.logpdf(value/1e3, 0, 2)
+                p += stats.uniform.logpdf(value, 0, 15000)
             elif parameter == 'rbh':
                 #p += np.log(stats.loguniform.pdf(value, 0.01, 20))
                 p += stats.lognorm.logpdf(value, 2, scale=np.exp(-1))
@@ -210,9 +209,9 @@ class Axisymmetric(Runner):
             mge_mass = self.mge_mass.get_nearest_neigbhbour(-x, y).data  
         """
         if self.use_mge_grid:
-            idx = get_nearest_neigbhbour_idx2(-current_parameters['delta_x'].to(u.arcsec).value, 
-                                             current_parameters['delta_y'].to(u.arcsec).value, 
-                                             self.mge_files)
+            idx = get_nearest_neigbhbour_idx2(current_parameters['delta_x'].to(u.arcsec).value, 
+                                              -current_parameters['delta_y'].to(u.arcsec).value, 
+                                              self.mge_files)
             mge_lum, mge_mass = get_mge(self.mge_files[idx])
             mge_lum, mge_mass = mge_lum.data, mge_mass.data
             
@@ -300,12 +299,12 @@ class Axisymmetric(Runner):
             elif row['name'] == 'delta_v':
                 initials[:, i] = 2*row['init']*np.random.rand(n_walkers) - row['init']
             elif row['name'] == 'r_kappa':
-                a = 10
-                b= 140
+                a = 1
+                b= 150
                 initials[:, i] = (b-a) * np.random.rand(n_walkers) + a
             elif row['name'] == 'r_mlr':
-                a = 10
-                b = 120
+                a = 1
+                b = 150
                 initials[:, i] = (b-a) * np.random.rand(n_walkers) + a
             # these parameters are used only by the subclass AnalyticalProfile (without an own get_initials).
             elif row['name'] == 'rbh':
