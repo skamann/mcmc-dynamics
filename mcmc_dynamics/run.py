@@ -385,7 +385,7 @@ if __name__ == "__main__":
         mge_lum, mge_mass, mge_coords = None, None, None
     except KeyError:
         mge_lum, mge_mass = get_mge(mge_filename)
-        mge_coords = None
+        mge_coords, mge_files = None, None
 
     # rotation angle determined with get_simple_rotation.py
     # data = data.rotate(config['theta_0'])

@@ -186,10 +186,12 @@ class AnalyticalProfiles(Axisymmetric):
 
         parameters = super(AnalyticalProfiles, self).fetch_parameters(values)
         
-        idx = get_nearest_neigbhbour_idx2(parameters['delta_x'].to(u.arcsec).value, 
-                                          -parameters['delta_y'].to(u.arcsec).value, 
-                                          self.mge_files)
-        self.mge_lum, self.mge_mass = get_mge(self.mge_files[idx])
+        if self.use_mge_grid:
+            idx = get_nearest_neigbhbour_idx2(parameters['delta_x'].to(u.arcsec).value, 
+                                            -parameters['delta_y'].to(u.arcsec).value, 
+                                            self.mge_files)
+            self.mge_lum, self.mge_mass = get_mge(self.mge_files[idx])
+            
         _x_mlr = AnalyticalProfiles.calculate_x_values(self.mge_lum)
         _x_kappa = AnalyticalProfiles.calculate_x_values(self.mge_mass)
 
@@ -211,7 +213,9 @@ class AnalyticalProfiles(Axisymmetric):
     def lnprior(self, values):
         p = 0
         
-        _ = self.fetch_parameters(values)
+        if self.use_mge_grid:
+            # this simply sets self.mge_lum and self.mge_mass 
+            _ = self.fetch_parameters(values)
         
         # add additional checks for parameters of radial profiles
         for parameter, value in dict(zip(self.fitted_parameters, values)).items():
