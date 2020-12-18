@@ -192,8 +192,8 @@ class AnalyticalProfiles(Axisymmetric):
                                             self.mge_files)
             mge_lum, mge_mass = get_mge(self.mge_files[idx])
             
-        _x_mlr = AnalyticalProfiles.calculate_x_values(self.mge_lum)
-        _x_kappa = AnalyticalProfiles.calculate_x_values(self.mge_mass)
+        _x_mlr = AnalyticalProfiles.calculate_x_values(mge_lum)
+        _x_kappa = AnalyticalProfiles.calculate_x_values(mge_mass)
 
         _x = _x_mlr/parameters.pop('r_mlr')
         parameters['mlr'] = (
