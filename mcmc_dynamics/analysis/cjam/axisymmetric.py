@@ -28,18 +28,23 @@ def init_cjam(x, y, mge_mass, mge_lum, *args):
 
     global gx
     global gy
-    global gmge_mass
-    global gmge_lum
+    #global gmge_mass
+    #global gmge_lum
 
     gx = x
     gy = y
-    gmge_mass = mge_mass
-    gmge_lum = mge_lum
+    #gmge_mass = mge_mass
+    #gmge_lum = mge_lum
 
 
 def run_cjam(parameters):
 
-    global gx, gy, gmge_mass, gmge_lum
+    global gx, gy#, gmge_mass, gmge_lum
+    
+    mge_filename = parameters['mge_filename']
+    mge_lum, mge_mass = get_mge(mge_filename)
+    mge_lum = mge_lum.data
+    mge_mass = mge_mass.data
 
     # use delta_x and delta_y to shift the given cluster centre
     #gx -= parameters['delta_x']
@@ -51,7 +56,7 @@ def run_cjam(parameters):
     #gx = gx * np.cos(theta0) + gy * np.sin(theta0)
     #gy = -gx * np.sin(theta0) + gy * np.cos(theta0)
 
-    model = cjam.axisymmetric(gx, gy, gmge_lum, gmge_mass, parameters['d'], beta=parameters['beta'],
+    model = cjam.axisymmetric(gx, gy, mge_lum, mge_mass, parameters['d'], beta=parameters['beta'],
                               kappa=parameters["kappa"], mscale=parameters['mlr'].value, incl=parameters['incl'],
                               mbh=parameters['mbh'], rbh=parameters['rbh'])
 
@@ -355,6 +360,8 @@ class Axisymmetric(Runner):
             dispersion. For each quantity, the median and the 1- and 3-sigma
             intervals of the individual curves are returned.
         """
+         
+        
         # get positions where to sample model
         if radii is None:
             radii = np.logspace(-1, 3, 200)*u.arcsec
@@ -370,10 +377,19 @@ class Axisymmetric(Runner):
         for i in range(len(parameters)):
             barq = parameters[i].pop('barq')
             parameters[i]['incl'] = np.arccos(np.sqrt((self.median_q**2 - barq**2)/(1. - barq**2)))
+            
+        for i, p in enumerate(parameters):
+            idx = get_nearest_neigbhbour_idx2(p['delta_x'].to(u.arcsec).value, -p['delta_y'].to(u.arcsec).value, self.mge_files)
+            parameters[i]['mge_filename'] = self.mge_files[idx]
 
         # run cjam for selected parameter sets
         logger.info('Recovering models using {0} threads ...'.format(n_threads))
-        init_arguments = (x, y, self.mge_mass.data, self.mge_lum.data)
+        
+        if self.use_mge_grid:
+            init_arguments = (x, y, None, None)
+        else:
+            init_arguments = (x, y, self.mge_mass.data, self.mge_lum.data)
+            
         if n_threads > 1:
             pool = Pool(n_threads, initializer=init_cjam, initargs=init_arguments)
             _results = pool.map_async(run_cjam, parameters)
@@ -432,7 +448,7 @@ class Axisymmetric(Runner):
 
         return profile
 
-    def calculate_mlr_profile(self, mlr, radii=None):
+    def calculate_mlr_profile(self, mlr, radii=None, mge_mass=None):
         """
         The method calculates a radial profile of the mass-to-light ratio.
 
@@ -446,6 +462,9 @@ class Axisymmetric(Runner):
             The radii at which the mass-to-light ratio should be calculated.
             If none are provided, a sequence of log-sampled radii is created
             internally.
+        mge_mass: files.MgeReader
+            If given, use this MGE instead of self.mge_mass. Useful when using 
+            a MGE grid.
 
         Returns
         -------
@@ -455,22 +474,28 @@ class Axisymmetric(Runner):
             The mass-to-light ratio of the cluster as a function of distance
             to the cluster centre.
         """
+        
+        _mge_mass = self.mge_mass if mge_mass is None else mge_mass
+        
+        if mge_mass is not None and radii is None:
+            logger.warning("No radii given but explicit MGE is used. The automatic radii used will be different for different MGEs!")
+        
         if radii is None:
-            rmin = self.mge_mass.data['s'].min().value
-            rmax = self.mge_mass.data['s'].max().value
-            radii = np.logspace(np.log10(rmin) - 0.5, np.log10(rmax) + 0.5, 50) * self.mge_mass.data['s'].unit
+            rmin = _mge_mass.data['s'].min().value
+            rmax = _mge_mass.data['s'].max().value
+            radii = np.logspace(np.log10(rmin) - 0.5, np.log10(rmax) + 0.5, 50) * _mge_mass.data['s'].unit
 
         radii = u.Quantity(radii)
         if radii.unit.is_unity():
-            radii *= self.mge_mass.data['s'].unit
+            radii *= _mge_mass.data['s'].unit
             logger.warning('Cannot determine unit for parameter <r>. Assuming {0}.'.format(radii.unit))
 
-        assert len(mlr) == len(self.mge_mass.data), "Length of parameter <mlr> must match no. of MGE components."
+        assert len(mlr) == len(_mge_mass.data), "Length of parameter <mlr> must match no. of MGE components."
         mlr = u.Quantity(mlr)
 
-        mlr_profile = np.zeros((radii.size,), dtype=np.float64)*self.mge_mass.data['i'].unit*mlr.unit
+        mlr_profile = np.zeros((radii.size,), dtype=np.float64)*_mge_mass.data['i'].unit*mlr.unit
         total = np.zeros_like(mlr_profile)/mlr.unit
-        for j, row in enumerate(self.mge_mass.data):
+        for j, row in enumerate(_mge_mass.data):
             gaussian = row['i']*np.exp(-0.5 * (radii / (np.sqrt(1. - row['q']) * row['s'])) ** 2)
 
             total += gaussian

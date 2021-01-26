@@ -10,7 +10,7 @@ import tqdm
 import json
 import time
 import sys
-
+import os
 import pickle
 
 from mcmc_dynamics.analysis import ModelFit, ConstantFit
@@ -18,7 +18,7 @@ from mcmc_dynamics.analysis.runner import Runner
 from mcmc_dynamics.analysis.cjam import Axisymmetric, AnalyticalProfiles
 from mcmc_dynamics.background import SingleStars
 from mcmc_dynamics.utils.plots import ProfilePlot
-from mcmc_dynamics.utils.files import DataReader, MgeReader
+from mcmc_dynamics.utils.files import DataReader, MgeReader, get_nearest_neigbhbour_idx2
 
 import logging
 
@@ -53,7 +53,8 @@ def get_mge_grid(filename, load=False):
         y = np.round(y, 3)
         
         name = "mge_{}_{}.ecsv".format(x,y)
-        mge.write(name, format='ascii.ecsv')
+        if not os.path.exists(name): 
+            mge.write(name, format='ascii.ecsv')
         
         files[(x,y)] = name
         
@@ -261,18 +262,40 @@ def make_radial_plots(runner, chain, data, background, initials, run_number, n_b
 def make_mlr_plot(runner, chain, n_burn, n_samples=128):
     axisym = runner
     
+    def get_mge_by_offset(dx, dy, use_grid):
+        if use_grid:
+            idx = get_nearest_neigbhbour_idx2(dx.to(u.arcsec).value, -dy.to(u.arcsec).value, runner.mge_files)
+            mge_lum, mge_mass = get_mge(runner.mge_files[idx])
+            
+        else:
+            mge_lum, mge_mass = runner.mge_lum, runner.mge_mass
+            
+        return mge_lum, mge_mass
+                
     # get random set of M/L values from chain
-    mlr = [p['mlr'] for p in axisym.sample_chain(chain=chain, n_burn=n_burn, n_samples=n_samples)]
+    samples = axisym.sample_chain(chain=chain, n_burn=n_burn, n_samples=n_samples)
+    mlr = [p['mlr'] for p in samples]
 
     arcsec2pc = 1/3600/360*2*np.pi * 10000 * u.parsec/u.arcsec
-    sigma = (arcsec2pc*axisym.mge_mass.data['s']).to(u.pc)
-    intensity = axisym.mge_mass.data['i']
-    get_mass = lambda mlr: np.sum(mlr*2.*np.pi*sigma**2*intensity)
-    get_meanmlr = lambda mlr: np.sum(mlr*sigma**2*intensity)/np.sum(sigma**2*intensity)
     
-    masses = [get_mass(mlr_i).value for mlr_i in mlr]
-    means = [get_meanmlr(mlr_i).value for mlr_i in mlr]
-
+    get_mass = lambda p, s, i: np.sum(p['mlr'] * 2. * np.pi * s**2 * i)
+    get_meanmlr = lambda p, s, i: np.sum(p['mlr'] * s**2 * i) / np.sum(s**2 * i)
+    
+    masses, means, mlr_profiles = [], [], []
+    for p in samples:
+        mge_lum, mge_mass = get_mge_by_offset(p['delta_x'], p['delta_y'], use_grid=runner.use_mge_grid)
+        sigma = (arcsec2pc * mge_mass.data['s']).to(u.pc)
+        intensity = mge_mass.data['i']
+        mass = get_mass(p, sigma, intensity).value
+        meanmlr = get_meanmlr(p, sigma, intensity).value
+        
+        r_mge = np.logspace(-0.1, 2, 200)*u.arcsec
+        profile = axisym.calculate_mlr_profile(p['mlr'], radii=r_mge, mge_mass=mge_mass)[1]
+        
+        masses.append(mass)
+        means.append(meanmlr)
+        mlr_profiles.append(profile)
+    
     lolim, median, uplim = np.percentile(means, [16, 50, 84])
     print(lolim, median, uplim)
     print('M/L: {0} + {1} - {2} M_sun/L_sun'.format(median, uplim - median, median - lolim))
@@ -281,9 +304,9 @@ def make_mlr_plot(runner, chain, n_burn, n_samples=128):
     print(lolim, median, uplim)
     print('Cluster mass: {0} + {1} - {2} M_sun'.format(median, uplim - median, median - lolim))
 
-    r_mge = np.logspace(-0.1, 2, 200)*u.arcsec
-
-    mlr_profiles = [axisym.calculate_mlr_profile(mlr_i, radii=r_mge)[1] for mlr_i in mlr]
+    #r_mge = np.logspace(-0.1, 2, 200)*u.arcsec
+    #mlr_profiles = [axisym.calculate_mlr_profile(p['mlr'], radii=r_mge)[1] for p in samples]
+    
     lolim, median, uplim = np.percentile(mlr_profiles, [16, 50, 84], axis=0)
 
     plt.style.use('sciencepaper')
@@ -420,9 +443,10 @@ if __name__ == "__main__":
     axisym.plot_chain(current_chain, filename='cjam_chains_{}.png'.format(run_number), lnprob=_lnprob)
     axisym.plot_chain(current_chain, filename='cjam_chains_{}_median.png'.format(run_number), plot_median=True)
     
-    # assert False
     # plot_kappas(axisym, current_chain)
     # logging.info("Plotted kappas.")
+    
+    
 
     try:
         logging.info('Creating corner plot ...')
@@ -435,7 +459,7 @@ if __name__ == "__main__":
     
     make_mlr_plot(axisym, current_chain, config['n_burn'])
     logging.info("Plotted M/L profile.")
-    
+    assert False
     initials = [{'name': 'v_sys', 'init': 0 * u.km/u.s, 'fixed': True},
                 {'name': 'sigma_max', 'init': config['sigma_max'] * u.km/u.s, 'fixed': False},
                 {'name': 'v_maxx', 'init': config['v_maxx'] * u.km/u.s, 'fixed': False},
@@ -463,9 +487,11 @@ if __name__ == "__main__":
         logging.info("Reading model file {}".format(args.modelfile))
         radial_model = table.QTable.read(args.modelfile, format='ascii.ecsv')
     else:
-        radial_model = axisym.create_profiles(current_chain, n_burn=config['n_burn'], n_threads=50, 
-                                              n_samples=100, filename="radial_profiles_{}.csv".format(run_number))       
+                
+        radial_model = axisym.create_profiles(current_chain, n_burn=config['n_burn'], n_threads=50, n_samples=100,
+                                              filename="radial_profiles_{}.csv".format(run_number))       
 
         
     logging.info("Plotting profiles ...")
     plot_radial_profiles(radial_model=radial_model, radial_profile=radial_profile, run_number=run_number)
+    

@@ -191,6 +191,8 @@ class AnalyticalProfiles(Axisymmetric):
                                             -parameters['delta_y'].to(u.arcsec).value, 
                                             self.mge_files)
             mge_lum, mge_mass = get_mge(self.mge_files[idx])
+        else:
+            mge_lum, mge_mass = self.mge_lum, self.mge_mass
             
         _x_mlr = AnalyticalProfiles.calculate_x_values(mge_lum)
         _x_kappa = AnalyticalProfiles.calculate_x_values(mge_mass)
