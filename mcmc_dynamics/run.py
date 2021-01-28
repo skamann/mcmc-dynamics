@@ -297,12 +297,12 @@ def make_mlr_plot(runner, chain, n_burn, n_samples=128):
         mlr_profiles.append(profile)
     
     lolim, median, uplim = np.percentile(means, [16, 50, 84])
-    print(lolim, median, uplim)
-    print('M/L: {0} + {1} - {2} M_sun/L_sun'.format(median, uplim - median, median - lolim))
+    logging.info('M/L 16% {}, 50% {}, 84% {}'.format(lolim, median, uplim))
+    logging.info('M/L: {0} + {1} - {2} M_sun/L_sun'.format(median, uplim - median, median - lolim))
 
     lolim, median, uplim = np.percentile(masses, [16, 50, 84])
-    print(lolim, median, uplim)
-    print('Cluster mass: {0} + {1} - {2} M_sun'.format(median, uplim - median, median - lolim))
+    logging.info('cluster mass 16% {}, 50% {}, 84% {}'.format(lolim, median, uplim))
+    logging.info('Cluster mass: {0} + {1} - {2} M_sun'.format(median, uplim - median, median - lolim))
 
     #r_mge = np.logspace(-0.1, 2, 200)*u.arcsec
     #mlr_profiles = [axisym.calculate_mlr_profile(p['mlr'], radii=r_mge)[1] for p in samples]
@@ -387,12 +387,18 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO)
     config = json.load(open(args.config))
     run_number = int(time.time())
     if args.name:
         run_number = args.name
-
+        
+    logging.basicConfig(filename='{}.log'.format(run_number), level=logging.INFO)
+    
+    logging.info("Current config filename: " + args.config)
+    logging.info("Current config contents:")
+    for key, val in config.items():
+        logging.info("        {}: {}".format(key, val))
+    
     pos = None
     if args.chain:
         logging.info('Using stored chain {} but with a new run number: {}'.format(args.chain, run_number))
@@ -403,7 +409,6 @@ if __name__ == "__main__":
     
     mge_filename = config['filename_mge']
     try:
-        #mge_lum, mge_mass, mge_coords = get_mge_grid(mge_filename, load=False)
         mge_files = get_mge_grid(mge_filename, load=False)
         mge_lum, mge_mass, mge_coords = None, None, None
     except KeyError:
@@ -454,12 +459,12 @@ if __name__ == "__main__":
     except Exception as e:
         logging.warning(e)
 
-    logging.info('Creating profile plots ... ')
+    #logging.info('Creating profile plots ... ')
     #make_radial_plots(runner=axisym, chain=current_chain, data=data, background=background, initials=initials, run_number=run_number, n_burn=config['n_burn'])
     
     make_mlr_plot(axisym, current_chain, config['n_burn'])
     logging.info("Plotted M/L profile.")
-    assert False
+    #assert False
     initials = [{'name': 'v_sys', 'init': 0 * u.km/u.s, 'fixed': True},
                 {'name': 'sigma_max', 'init': config['sigma_max'] * u.km/u.s, 'fixed': False},
                 {'name': 'v_maxx', 'init': config['v_maxx'] * u.km/u.s, 'fixed': False},

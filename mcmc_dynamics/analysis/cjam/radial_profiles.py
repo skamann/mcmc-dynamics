@@ -220,6 +220,8 @@ class AnalyticalProfiles(Axisymmetric):
         
         if self.use_mge_grid:
             _, mge_lum, mge_mass = self.fetch_parameters(values, return_mge=True)
+        else:
+            mge_lum, mge_mass = self.mge_lum, self.mge_mass
         
         # add additional checks for parameters of radial profiles
         for parameter, value in dict(zip(self.fitted_parameters, values)).items():

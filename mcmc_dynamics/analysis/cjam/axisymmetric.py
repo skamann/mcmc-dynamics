@@ -28,23 +28,29 @@ def init_cjam(x, y, mge_mass, mge_lum, *args):
 
     global gx
     global gy
-    #global gmge_mass
-    #global gmge_lum
+    global gmge_mass
+    global gmge_lum
 
     gx = x
     gy = y
-    #gmge_mass = mge_mass
-    #gmge_lum = mge_lum
+    gmge_mass = mge_mass
+    gmge_lum = mge_lum
 
 
 def run_cjam(parameters):
 
-    global gx, gy#, gmge_mass, gmge_lum
+    global gx, gy, gmge_mass, gmge_lum
     
-    mge_filename = parameters['mge_filename']
-    mge_lum, mge_mass = get_mge(mge_filename)
-    mge_lum = mge_lum.data
-    mge_mass = mge_mass.data
+    use_mge_grid = gmge_mass is None
+    if use_mge_grid:
+        mge_filename = parameters['mge_filename']
+        mge_lum, mge_mass = get_mge(mge_filename)
+        mge_lum = mge_lum.data
+        mge_mass = mge_mass.data
+    
+    else:
+        mge_lum = gmge_lum
+        mge_mass = gmge_mass
 
     # use delta_x and delta_y to shift the given cluster centre
     #gx -= parameters['delta_x']
@@ -378,10 +384,14 @@ class Axisymmetric(Runner):
             barq = parameters[i].pop('barq')
             parameters[i]['incl'] = np.arccos(np.sqrt((self.median_q**2 - barq**2)/(1. - barq**2)))
             
-        for i, p in enumerate(parameters):
-            idx = get_nearest_neigbhbour_idx2(p['delta_x'].to(u.arcsec).value, -p['delta_y'].to(u.arcsec).value, self.mge_files)
-            parameters[i]['mge_filename'] = self.mge_files[idx]
-
+        if self.use_mge_grid:
+            for i, p in enumerate(parameters):
+                idx = get_nearest_neigbhbour_idx2(p['delta_x'].to(u.arcsec).value, -p['delta_y'].to(u.arcsec).value, self.mge_files)
+                parameters[i]['mge_filename'] = self.mge_files[idx]
+        else:
+            for i, p in enumerate(parameters):
+                parameters[i]['mge_filename'] = None 
+                
         # run cjam for selected parameter sets
         logger.info('Recovering models using {0} threads ...'.format(n_threads))
         
