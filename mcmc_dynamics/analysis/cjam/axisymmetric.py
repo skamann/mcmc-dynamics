@@ -52,15 +52,8 @@ def run_cjam(parameters):
         mge_lum = gmge_lum
         mge_mass = gmge_mass
 
-    # use delta_x and delta_y to shift the given cluster centre
-    #gx -= parameters['delta_x']
-    #gy -= parameters['delta_y']
-
-    # rotating data to determine rotation angle of cluster
-    # copied from data_reader.DataReader.rotate()
-    #theta0 = np.arctan2(parameters['kappa_y'], parameters['kappa_x'])
-    #gx = gx * np.cos(theta0) + gy * np.sin(theta0)
-    #gy = -gx * np.sin(theta0) + gy * np.cos(theta0)
+    # shifting the centre and rotating coords is not allowed here,
+    # since this function is used only with fake data
 
     model = cjam.axisymmetric(gx, gy, mge_lum, mge_mass, parameters['d'], beta=parameters['beta'],
                               kappa=parameters["kappa"], mscale=parameters['mlr'].value, incl=parameters['incl'],
@@ -73,7 +66,7 @@ def run_cjam(parameters):
 
 class Axisymmetric(Runner):
 
-    def __init__(self, data, mge_mass, mge_lum, initials, mge_coords=None, mge_files=None, **kwargs):
+    def __init__(self, data, initials, mge_mass=None, mge_lum=None, mge_coords=None, mge_files=None, **kwargs):
         # required observables
         self.x = None
         self.y = None
@@ -91,25 +84,22 @@ class Axisymmetric(Runner):
         #     self.y *= u.arcsec
         #     logger.warning('Missing unit for <y> values. Assuming {0}.'.format(self.y.unit))
 
-        #assert isinstance(mge_mass, MgeReader) or isinstance(mge_mass, list), "'mge_mass' must be instance of {0}".format(MgeReader.__module__)
+        assert isinstance(mge_mass, MgeReader) or mge_mass is None, "'mge_mass' must be instance of {0}".format(MgeReader.__module__)
         self.mge_mass = mge_mass
 
-        #assert isinstance(mge_lum, MgeReader) or isinstance(mge_lum, list), "'mge_lum' must be instance of {0}".format(MgeReader.__module__)
+        assert isinstance(mge_lum, MgeReader) or mge_lum is None, "'mge_lum' must be instance of {0}".format(MgeReader.__module__)
         self.mge_lum = mge_lum
         
-        #assert type(mge_lum) == type(mge_mass), "mge_lum and mge_mass must be of the same type."
-
+        if any([mge_mass is None, mge_lum is None]):
+            assert all([mge_mass is None, mge_lum is None, mge_files is not None]), "if mge_lum is None or mge_mass is None, both must be None and mge_files must be given."
+            assert mge_files is not None, "if mge_lum or mge_mass is None, you must provide mge_files"
+        
         self.use_mge_grid = mge_files is not None
         self.mge_files = mge_files
-        """
-        if isinstance(mge_lum, list):
-            self.use_mge_grid = True    
-            assert mge_coords is not None
-            self.mge_coords = mge_coords
-        else:
-            self.use_mge_grid = False
-        """
+
         if self.use_mge_grid:
+            # we need a median_q value for the prior
+            # for simplicity, we take the one from the central mge_profile of the grid
             idx = get_nearest_neigbhbour_idx2(0, 0, self.mge_files)
             _mge_lum, _ = get_mge(self.mge_files[idx])
             self.median_q = np.median(_mge_lum.data['q'])
@@ -169,10 +159,6 @@ class Axisymmetric(Runner):
                 return -np.inf
             elif parameter == 'barq' and (value <= 0.2 or value > self.median_q):
                 return -np.inf
-#            elif parameter == 'theta_0' and (value < 0 or value > np.pi*u.rad):
-#                return -np.inf
-#            elif parameter == 'kappa':
-#                p += np.log(stats.norm(0, 5).pdf(value)).sum()
             elif parameter == 'kappa_x' or parameter =='kappa_y':
                 p += stats.norm.logpdf(value, 0, 5)
             elif parameter == 'delta_x' or parameter == 'delta_y':
@@ -180,11 +166,7 @@ class Axisymmetric(Runner):
             elif parameter == 'delta_v':
                 p += stats.norm.logpdf(value, 0, 1)
             elif parameter == 'mbh':
-                #p += stats.expon.logpdf(value/1e3, 0, 2)
                 p += stats.uniform.logpdf(value, 0, 15000)
-            elif parameter == 'rbh':
-                #p += np.log(stats.loguniform.pdf(value, 0.01, 20))
-                p += stats.lognorm.logpdf(value, 2, scale=np.exp(-1))
 
         return p + super(Axisymmetric, self).lnprior(values=values)
 
@@ -205,21 +187,11 @@ class Axisymmetric(Runner):
         incl = np.arccos(np.sqrt(
             (self.median_q**2 - current_parameters['barq']**2)/(1. - current_parameters['barq']**2)))
 
-        # use delta_x and delta_y to shift the given cluster centre
-        #self.x -= current_parameters['delta_x']
-        #self.y -= current_parameters['delta_y']
-
         x -= current_parameters['delta_x']
         y -= current_parameters['delta_y']
         
         # if we are using a MGE grid instead of a single MGE profile,
         # pick the MGE profile corresponding to the grid point closes to the offset
-        
-        """
-        if self.use_mge_grid:
-            mge_lum = self.mge_lum.get_nearest_neigbhbour(-x, y).data 
-            mge_mass = self.mge_mass.get_nearest_neigbhbour(-x, y).data  
-        """
         if self.use_mge_grid:
             idx = get_nearest_neigbhbour_idx2(current_parameters['delta_x'].to(u.arcsec).value, 
                                               -current_parameters['delta_y'].to(u.arcsec).value, 
@@ -237,9 +209,6 @@ class Axisymmetric(Runner):
         # rotating data to determine rotation angle of cluster
         # copied from data_reader.DataReader.rotate()
         theta0 = np.arctan2(current_parameters['kappa_y'], current_parameters['kappa_x'])
-        
-        #self.x = self.x * np.cos(theta0) + self.y * np.sin(theta0)
-        #self.y = -self.x * np.sin(theta0) + self.y * np.cos(theta0)
         
         xnew = x * np.cos(theta0) + y * np.sin(theta0)
         ynew = -x * np.sin(theta0) + y * np.cos(theta0)
@@ -282,7 +251,7 @@ class Axisymmetric(Runner):
 
         # calculate likelihood
         if not (v2zz > vz**2).all():
-            logging.error("Strange velocities or nan velocities.")
+            logging.error("Strange velocities or nan velocities for parameters: {}".format(current_parameters))
             return -np.inf
 
         if return_model:
@@ -318,11 +287,6 @@ class Axisymmetric(Runner):
                 a = 10
                 b = 150
                 initials[:, i] = (b-a) * np.random.rand(n_walkers) + a
-            # these parameters are used only by the subclass AnalyticalProfile (without an own get_initials).
-            elif row['name'] == 'rbh':
-                initials[:, i] = 0.01 *row['init'].unit + np.random.rand(n_walkers) * row['init']
-            elif row['name'] == 'm_bhs':
-                initials[:, i] = np.random.rand(n_walkers) * row['init']
               
             else:
                 initials[:, i] = row['init'] * (0.7 + 0.6*np.random.rand(n_walkers))*row['init'].unit

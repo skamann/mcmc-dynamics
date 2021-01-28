@@ -105,25 +105,6 @@ class AnalyticalProfiles(Axisymmetric):
                                                  mge_coords=mge_coords, mge_files=mge_files, initials=initials,
                                                  **kwargs)
         
-        """
-        if self.use_mge_grid:
-            idx = get_nearest_neigbhbour_idx2(0, 0, self.mge_files)
-            mge_lum, mge_mass = get_mge(self.mge_files[idx])
-        
-        else:
-            mge_lum = self.mge_lum
-            mge_mass = self.mge_mass
-        """
-
-        #self.mge_files = mge_files
-
-        # MGE components are assigned the values of the analytical functions at the distances where their contribution
-        # to the overall profiles is max.
-
-        #self.x_mlr = AnalyticalProfiles.calculate_x_values(mge_mass)
-        #self.x_kappa = AnalyticalProfiles.calculate_x_values(mge_lum)
-        
-    
     @staticmethod
     def calculate_x_values(single_mge):
         x = np.logspace(u.Dex(single_mge.data['s']).min().value,
@@ -178,6 +159,12 @@ class AnalyticalProfiles(Axisymmetric):
                 labels[name] = r'$r_{{\rm \kappa}}$/{0}'.format(latex_string)
             elif name == 'r_mlr':
                 labels[name] = r'$r_{{\rm \Upsilon}}$/{0}'.format(latex_string)
+            elif row['name'] == 'delta_x':
+                labels[row['name']] = r'$\Delta x$'
+            elif row['name'] == 'delta_y':
+                labels[row['name']] = r'$\Delta y$'
+            elif row['name'] == 'mbh':
+                labels[row['name']] = r'$M_{\rm BH}$'                
             else:
                 labels[row['name']] = r'${0}/${1}'.format(row['name'], latex_string)
         return labels
@@ -187,13 +174,16 @@ class AnalyticalProfiles(Axisymmetric):
         parameters = super(AnalyticalProfiles, self).fetch_parameters(values)
         
         if self.use_mge_grid:
+            # find out which MGE profile to use based on the current offset
             idx = get_nearest_neigbhbour_idx2(parameters['delta_x'].to(u.arcsec).value, 
-                                            -parameters['delta_y'].to(u.arcsec).value, 
-                                            self.mge_files)
+                                              -parameters['delta_y'].to(u.arcsec).value, 
+                                              self.mge_files)
             mge_lum, mge_mass = get_mge(self.mge_files[idx])
         else:
             mge_lum, mge_mass = self.mge_lum, self.mge_mass
-            
+
+        # MGE components are assigned the values of the analytical functions at the distances where their contribution
+        # to the overall profiles is max.            
         _x_mlr = AnalyticalProfiles.calculate_x_values(mge_lum)
         _x_kappa = AnalyticalProfiles.calculate_x_values(mge_mass)
 
@@ -218,6 +208,8 @@ class AnalyticalProfiles(Axisymmetric):
     def lnprior(self, values):
         p = 0
         
+        # some priors depend on the current MGE profile, so we need to get it
+        # (since it is not saved as self.xyz)
         if self.use_mge_grid:
             _, mge_lum, mge_mass = self.fetch_parameters(values, return_mge=True)
         else:
@@ -234,7 +226,6 @@ class AnalyticalProfiles(Axisymmetric):
                 v = u.Dex(value, unit=self.initials[i]['init'].unit)
 
             if parameter in ['mlr_0', 'mlr_t'] and (v.value <= 0.1 or v.value > 100):
-                print(parameter, v)
                 return -np.inf
 
             elif parameter == 'mlr_inf':     
@@ -242,11 +233,9 @@ class AnalyticalProfiles(Axisymmetric):
                 my_std = 1.0
 
                 if value < 0: 
-                    print(parameter, v)
                     return -np.inf
                 else:
                     p0 = stats.norm.logpdf(value, loc=my_mean, scale=my_std)
-                    # print('log-prior mlr_inf', p0)
                     p = p0 + p
 
             elif parameter == 'r_mlr' and not (mge_mass.data['s'].min() < v < mge_mass.data['s'].max()):
@@ -259,8 +248,5 @@ class AnalyticalProfiles(Axisymmetric):
 
         pradial = p 
         paxis = super(AnalyticalProfiles, self).lnprior(values=values)
-        
-        #print('pradial', pradial)
-        #print('paxis', paxis)
         
         return pradial + paxis
