@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import corner
 import emcee
+from pathos.multiprocessing import Pool
 from matplotlib import gridspec
 from matplotlib.collections import LineCollection
 from matplotlib.ticker import MaxNLocator
@@ -403,7 +404,12 @@ class Runner(object):
                 i, [p['name'] for p in self.initials if not p['fixed']], pos[i])
 
         # start MCMC
-        sampler = emcee.EnsembleSampler(n_walkers, self.n_fitted_parameters, self.lnprob, threads=n_threads)
+        if n_threads > 1:
+            pool = Pool(processes=n_threads)
+        else:
+            pool = None
+
+        sampler = emcee.EnsembleSampler(n_walkers, self.n_fitted_parameters, self.lnprob, pool=pool)
         logger.info("Running MCMC chain ...")
 
         if n_out is not None:
