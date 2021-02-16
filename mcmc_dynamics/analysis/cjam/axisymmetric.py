@@ -193,7 +193,7 @@ class Axisymmetric(Runner):
         # if we are using a MGE grid instead of a single MGE profile,
         # pick the MGE profile corresponding to the grid point closes to the offset
         if self.use_mge_grid:
-            idx = get_nearest_neigbhbour_idx2(current_parameters['delta_x'].to(u.arcsec).value, 
+            idx = get_nearest_neigbhbour_idx2(-current_parameters['delta_x'].to(u.arcsec).value, 
                                               -current_parameters['delta_y'].to(u.arcsec).value, 
                                               self.mge_files)
             mge_lum, mge_mass = get_mge(self.mge_files[idx])
@@ -350,7 +350,7 @@ class Axisymmetric(Runner):
             
         if self.use_mge_grid:
             for i, p in enumerate(parameters):
-                idx = get_nearest_neigbhbour_idx2(p['delta_x'].to(u.arcsec).value, -p['delta_y'].to(u.arcsec).value, self.mge_files)
+                idx = get_nearest_neigbhbour_idx2(-p['delta_x'].to(u.arcsec).value, -p['delta_y'].to(u.arcsec).value, self.mge_files)
                 parameters[i]['mge_filename'] = self.mge_files[idx]
         else:
             for i, p in enumerate(parameters):

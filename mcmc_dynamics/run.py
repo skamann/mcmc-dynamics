@@ -264,7 +264,7 @@ def make_mlr_plot(runner, chain, n_burn, n_samples=128):
     
     def get_mge_by_offset(dx, dy, use_grid):
         if use_grid:
-            idx = get_nearest_neigbhbour_idx2(dx.to(u.arcsec).value, -dy.to(u.arcsec).value, runner.mge_files)
+            idx = get_nearest_neigbhbour_idx2(-dx.to(u.arcsec).value, -dy.to(u.arcsec).value, runner.mge_files)
             mge_lum, mge_mass = get_mge(runner.mge_files[idx])
             
         else:

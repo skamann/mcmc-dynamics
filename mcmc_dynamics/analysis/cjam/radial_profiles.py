@@ -175,7 +175,7 @@ class AnalyticalProfiles(Axisymmetric):
         
         if self.use_mge_grid:
             # find out which MGE profile to use based on the current offset
-            idx = get_nearest_neigbhbour_idx2(parameters['delta_x'].to(u.arcsec).value, 
+            idx = get_nearest_neigbhbour_idx2(-parameters['delta_x'].to(u.arcsec).value, 
                                               -parameters['delta_y'].to(u.arcsec).value, 
                                               self.mge_files)
             mge_lum, mge_mass = get_mge(self.mge_files[idx])
