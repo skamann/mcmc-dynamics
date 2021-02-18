@@ -126,7 +126,7 @@ class ConstantFit(Runner):
 
         v_max = np.sqrt(v_maxx**2 + v_maxy**2)
         theta_0 = np.arctan2(v_maxy, v_maxx)
-
+        
         return v_sys + v_max*np.sin(self.theta - theta_0)
 
     def lnprior(self, values):
@@ -153,8 +153,10 @@ class ConstantFit(Runner):
         # Split parameters
         for parameter, value in self.fetch_parameters(values).items():
             if parameter == 'sigma_max' and (value <= 0 or value > 100*u.km/u.s):
+                print('{} causes lnprior = -inf'.format(parameter))
                 return -np.inf
             elif parameter in ['v_maxx', 'vmaxy'] and abs(value) > 50*u.km/u.s:
+                print('{} causes lnprior = -inf'.format(parameter))
                 return -np.inf
             # elif parameter == 'theta_0' and (value < 0 or value > np.pi*u.rad):
             #     return -np.inf
@@ -229,11 +231,12 @@ class ConstantFit(Runner):
             i += 1
         return initials
 
-    def compute_theta_vmax(self, chain, n_burn):
+    def compute_theta_vmax(self, chain, n_burn, return_samples=False):
 
         try:
             i = self.fitted_parameters.index('v_maxx')
             j = self.fitted_parameters.index('v_maxy')
+            k = self.fitted_parameters.index('sigma_max')
         except ValueError:
             logger.error("'v_maxx' and/or 'v_maxy' missing in list of fitted parameters.")
             return None
@@ -268,6 +271,10 @@ class ConstantFit(Runner):
                 name=name))
 
         results.loc['median']['theta_0'] += median_theta*u.rad
+        
+        if return_samples:
+            sigmas = chain[:, n_burn:, k].flatten()
+            return results, v_max, _theta, sigmas
 
         return results
 

@@ -8,7 +8,7 @@ from scipy import stats
 from astropy import units as u
 from astropy.table import Table
 from ..runner import Runner
-from mcmc_dynamics.utils.files.mge_reader import MgeReader
+from mcmc_dynamics.utils.files import MgeReader, get_mge, get_nearest_neigbhbour_idx2
 
 
 logger = logging.getLogger(__name__)
@@ -40,21 +40,23 @@ def init_cjam(x, y, mge_mass, mge_lum, *args):
 def run_cjam(parameters):
 
     global gx, gy, gmge_mass, gmge_lum
+    
+    use_mge_grid = gmge_mass is None
+    if use_mge_grid:
+        mge_filename = parameters['mge_filename']
+        mge_lum, mge_mass = get_mge(mge_filename)
+        mge_lum = mge_lum.data
+        mge_mass = mge_mass.data
+    
+    else:
+        mge_lum = gmge_lum
+        mge_mass = gmge_mass
 
-    # use delta_x and delta_y to shift the given cluster centre
-    gx -= parameters['delta_x']
-    gy -= parameters['delta_y']
+    # shifting the centre and rotating coords is not allowed here,
+    # since this function is used only with fake data
 
-    # rotating data to determine rotation angle of cluster
-    # copied from data_reader.DataReader.rotate()
-    theta0 = np.arctan2(parameters['kappa_y'], parameters['kappa_x'])
-    gx = gx * np.cos(theta0) + gy * np.sin(theta0)
-    gy = -gx * np.sin(theta0) + gy * np.cos(theta0)
-
-    kappa = np.sqrt(parameters['kappa_x']**2 + parameters['kappa_y']**2)
-
-    model = cjam.axisymmetric(gx, gy, gmge_lum, gmge_mass, parameters['d'], beta=parameters['beta'],
-                              kappa=kappa, mscale=parameters['mlr'].value, incl=parameters['incl'],
+    model = cjam.axisymmetric(gx, gy, mge_lum, mge_mass, parameters['d'], beta=parameters['beta'],
+                              kappa=parameters["kappa"], mscale=parameters['mlr'].value, incl=parameters['incl'],
                               mbh=parameters['mbh'], rbh=parameters['rbh'])
 
     # get velocity and dispersion at every data point
@@ -64,7 +66,7 @@ def run_cjam(parameters):
 
 class Axisymmetric(Runner):
 
-    def __init__(self, data, mge_mass, mge_lum, initials, **kwargs):
+    def __init__(self, data, initials, mge_mass=None, mge_lum=None, mge_coords=None, mge_files=None, **kwargs):
         # required observables
         self.x = None
         self.y = None
@@ -82,13 +84,28 @@ class Axisymmetric(Runner):
         #     self.y *= u.arcsec
         #     logger.warning('Missing unit for <y> values. Assuming {0}.'.format(self.y.unit))
 
-        assert isinstance(mge_mass, MgeReader), "'mge_mass' must be instance of {0}".format(MgeReader.__module__)
+        assert isinstance(mge_mass, MgeReader) or mge_mass is None, "'mge_mass' must be instance of {0}".format(MgeReader.__module__)
         self.mge_mass = mge_mass
 
-        assert isinstance(mge_lum, MgeReader), "'mge_lum' must be instance of {0}".format(MgeReader.__module__)
+        assert isinstance(mge_lum, MgeReader) or mge_lum is None, "'mge_lum' must be instance of {0}".format(MgeReader.__module__)
         self.mge_lum = mge_lum
+        
+        if any([mge_mass is None, mge_lum is None]):
+            assert all([mge_mass is None, mge_lum is None, mge_files is not None]), "if mge_lum is None or mge_mass is None, both must be None and mge_files must be given."
+            assert mge_files is not None, "if mge_lum or mge_mass is None, you must provide mge_files"
+        
+        self.use_mge_grid = mge_files is not None
+        self.mge_files = mge_files
 
-        self.median_q = np.median(self.mge_lum.data['q'])
+        if self.use_mge_grid:
+            # we need a median_q value for the prior
+            # for simplicity, we take the one from the central mge_profile of the grid
+            idx = get_nearest_neigbhbour_idx2(0, 0, self.mge_files)
+            _mge_lum, _ = get_mge(self.mge_files[idx])
+            self.median_q = np.median(_mge_lum.data['q'])
+        else:
+            self.median_q = np.median(self.mge_lum.data['q'])
+            
 
     @property
     def observables(self):
@@ -104,7 +121,8 @@ class Axisymmetric(Runner):
             self._parameters.update({'d': u.kpc, 'mlr': u.dimensionless_unscaled, 'barq': u.dimensionless_unscaled,
                                      'kappa_x': u.dimensionless_unscaled, 'kappa_y': u.dimensionless_unscaled,
                                      'beta': u.dimensionless_unscaled, 'mbh': u.Msun, 
-                                     'delta_x': u.arcsec, 'delta_y': u.arcsec, 'rbh': u.arcsec})
+                                     'delta_x': u.arcsec, 'delta_y': u.arcsec, 'rbh': u.arcsec,
+                                     'delta_v': u.km/u.s})
         return self._parameters
 
     @property
@@ -122,12 +140,8 @@ class Axisymmetric(Runner):
                 labels[row['name']] = r'$\kappa$'
             elif row['name'] == 'beta':
                 labels[row['name']] = r'$\beta$'
-            elif row['name'] == 'mbh':
-                labels[row['name']] = r'$M_{\rm BH}$'
-            elif row['name'] == 'delta_x':
-                labels[row['name']] = r'$\Delta x$'
-            elif row['name'] == 'delta_y':
-                labels[row['name']] = r'$\Delta y$'
+            elif row['name'] == 'delta_v':
+                labels[row['name']] = r'$\Delta v$'
 #            elif row['name'] == 'theta_0':
 #                labels[row['name']] = r'$\theta_{{\rm 0}}/${0}'.format(latex_string)
             else:
@@ -137,32 +151,31 @@ class Axisymmetric(Runner):
     def lnprior(self, values):
         p = 0
         current_parameters = self.fetch_parameters(values)
+        
         for parameter, value in current_parameters.items():
             if parameter == 'd' and value <= 0.5*u.kpc:
                 return -np.inf
-            elif parameter == 'mlr' and (np.less_equal(value, 0.1).all() or np.greater(value, 10).all()):
+            elif parameter == 'mlr' and (np.less_equal(value, 0.1).any() or np.greater(value, 10).any()):
                 return -np.inf
             elif parameter == 'barq' and (value <= 0.2 or value > self.median_q):
                 return -np.inf
-#            elif parameter == 'theta_0' and (value < 0 or value > np.pi*u.rad):
-#                return -np.inf
-#            elif parameter == 'kappa':
-#                p += np.log(stats.norm(0, 5).pdf(value)).sum()
-            elif parameter in ['kappa_x']:
-                kappa_x, kappa_y = current_parameters['kappa_x'], current_parameters['kappa_y']
-                _kappa = np.sqrt(kappa_x**2 + kappa_y**2)
-                p += np.log(stats.norm(0, 5).pdf(_kappa)/_kappa)
+            elif parameter == 'kappa_x' or parameter =='kappa_y':
+                p += stats.norm.logpdf(value, 0, 5)
             elif parameter == 'delta_x' or parameter == 'delta_y':
-                p += np.log(stats.norm(0, 1).pdf(value))
+                p += stats.norm.logpdf(value, 0, 1)
+            elif parameter == 'delta_v':
+                p += stats.norm.logpdf(value, 0, 1)
             elif parameter == 'mbh':
-                p += np.log(stats.expon(0, 2).pdf(value/1e3))
+                p += stats.uniform.logpdf(value, 0, 15000)
 
         return p + super(Axisymmetric, self).lnprior(values=values)
 
-    def lnlike(self, values):
-
+    def lnlike(self, values, return_model=False):
+        x = np.copy(self.x)
+        y = np.copy(self.y)
+        
         current_parameters = self.fetch_parameters(values)
-
+        
         unique_id = uuid.uuid4()
 
         with printoptions(precision=3):
@@ -174,25 +187,60 @@ class Axisymmetric(Runner):
         incl = np.arccos(np.sqrt(
             (self.median_q**2 - current_parameters['barq']**2)/(1. - current_parameters['barq']**2)))
 
-        # use delta_x and delta_y to shift the given cluster centre
-        self.x -= current_parameters['delta_x']
-        self.y -= current_parameters['delta_y']
-
+        x -= current_parameters['delta_x']
+        y -= current_parameters['delta_y']
+        
+        # if we are using a MGE grid instead of a single MGE profile,
+        # pick the MGE profile corresponding to the grid point closes to the offset
+        if self.use_mge_grid:
+            idx = get_nearest_neigbhbour_idx2(-current_parameters['delta_x'].to(u.arcsec).value, 
+                                              -current_parameters['delta_y'].to(u.arcsec).value, 
+                                              self.mge_files)
+            mge_lum, mge_mass = get_mge(self.mge_files[idx])
+            mge_lum, mge_mass = mge_lum.data, mge_mass.data
+            
+            gridpoint = mge_lum['gridpoint'].max()
+            logger.info("delta_x: {:.3f}, delta_y: {:.3f}, gridpoint: {}".format(current_parameters['delta_x'], current_parameters['delta_y'], gridpoint))
+            
+        else:
+            mge_lum = self.mge_lum.data
+            mge_mass = self.mge_mass.data
+        
         # rotating data to determine rotation angle of cluster
         # copied from data_reader.DataReader.rotate()
         theta0 = np.arctan2(current_parameters['kappa_y'], current_parameters['kappa_x'])
-        self.x = self.x * np.cos(theta0) + self.y * np.sin(theta0)
-        self.y = -self.x * np.sin(theta0) + self.y * np.cos(theta0)
+        
+        xnew = x * np.cos(theta0) + y * np.sin(theta0)
+        ynew = -x * np.sin(theta0) + y * np.cos(theta0)
+        
+        x = xnew
+        y = ynew        
+
+        # fixing cjam bug where it throws nans for star too close to centre
+
+        xa = x.to(u.arcmin).value
+        ya = y.to(u.arcmin).value
+                
+        xa = np.where((xa < 1e-3) & (xa > 0), 1e-3, xa)
+        xa = np.where((xa > -1e-3) & (xa < 0), -1e-3, xa)
+        
+        ya = np.where((ya < 1e-3) & (ya > 0), 1e-3, ya)
+        ya = np.where((ya > -1e-3) & (ya < 0), -1e-3, ya)        
+        
+        x = xa * u.arcmin
+        y = ya * u.arcmin
+        
+        self.v += current_parameters['delta_v']
 
         # calculate JAM model for current parameters
         try:
-            kappa = np.sqrt(current_parameters['kappa_x']**2 + current_parameters['kappa_y']**2)
-            model = cjam.axisymmetric(self.x, self.y, self.mge_lum.data, self.mge_mass.data, current_parameters['d'],
-                                      beta=current_parameters['beta'], kappa=kappa,
+            model = cjam.axisymmetric(x, y, mge_lum, mge_mass, current_parameters['d'],
+                                      beta=current_parameters['beta'], kappa=current_parameters['kappa'],
                                       mscale=current_parameters['mlr'], incl=incl, mbh=current_parameters['mbh'],
                                       rbh=current_parameters['rbh'])
 
-        except ValueError:
+        except ValueError as err:
+            logging.warn("CJAM returned an error:", err)
             return -np.inf
 
         logger.debug('CJAM call succeeded for {0}.'.format(unique_id))
@@ -203,7 +251,13 @@ class Axisymmetric(Runner):
 
         # calculate likelihood
         if not (v2zz > vz**2).all():
+            logging.error("Strange velocities or nan velocities for parameters: {}".format(current_parameters))
             return -np.inf
+
+        if return_model:
+            lnlike = self._calculate_lnlike(v_los=vz, sigma_los=np.sqrt(v2zz - vz**2))
+            return lnlike, x, y, vz, v2zz
+        
         return self._calculate_lnlike(v_los=vz, sigma_los=np.sqrt(v2zz - vz**2))
 
     def get_initials(self, n_walkers):
@@ -223,6 +277,17 @@ class Axisymmetric(Runner):
             elif row['name'] == 'delta_x' or row['name'] == 'delta_y':
                 # uniform on [-init, +init]
                 initials[:, i] = 2*row['init']*np.random.rand(n_walkers) - row['init']
+            elif row['name'] == 'delta_v':
+                initials[:, i] = 2*row['init']*np.random.rand(n_walkers) - row['init']
+            elif row['name'] == 'r_kappa':
+                a = 10
+                b= 150
+                initials[:, i] = (b-a) * np.random.rand(n_walkers) + a
+            elif row['name'] == 'r_mlr':
+                a = 10
+                b = 150
+                initials[:, i] = (b-a) * np.random.rand(n_walkers) + a
+              
             else:
                 initials[:, i] = row['init'] * (0.7 + 0.6*np.random.rand(n_walkers))*row['init'].unit
             i += 1
@@ -230,7 +295,7 @@ class Axisymmetric(Runner):
         return initials
 
     def create_profiles(self, chain, n_burn, n_threads=1, n_samples=100, radii=None, n_theta=10,
-                        filename=None):
+                        filename=None, save_samples=False):
         """
         Create radial profiles of the (projected) rotation velocity and the
         velocity dispersion by randomly drawing parameters samples from the
@@ -265,6 +330,8 @@ class Axisymmetric(Runner):
             dispersion. For each quantity, the median and the 1- and 3-sigma
             intervals of the individual curves are returned.
         """
+         
+        
         # get positions where to sample model
         if radii is None:
             radii = np.logspace(-1, 3, 200)*u.arcsec
@@ -280,10 +347,23 @@ class Axisymmetric(Runner):
         for i in range(len(parameters)):
             barq = parameters[i].pop('barq')
             parameters[i]['incl'] = np.arccos(np.sqrt((self.median_q**2 - barq**2)/(1. - barq**2)))
-
+            
+        if self.use_mge_grid:
+            for i, p in enumerate(parameters):
+                idx = get_nearest_neigbhbour_idx2(-p['delta_x'].to(u.arcsec).value, -p['delta_y'].to(u.arcsec).value, self.mge_files)
+                parameters[i]['mge_filename'] = self.mge_files[idx]
+        else:
+            for i, p in enumerate(parameters):
+                parameters[i]['mge_filename'] = None 
+                
         # run cjam for selected parameter sets
         logger.info('Recovering models using {0} threads ...'.format(n_threads))
-        init_arguments = (x, y, self.mge_mass.data, self.mge_lum.data)
+        
+        if self.use_mge_grid:
+            init_arguments = (x, y, None, None)
+        else:
+            init_arguments = (x, y, self.mge_mass.data, self.mge_lum.data)
+            
         if n_threads > 1:
             pool = Pool(n_threads, initializer=init_cjam, initargs=init_arguments)
             _results = pool.map_async(run_cjam, parameters)
@@ -292,6 +372,9 @@ class Axisymmetric(Runner):
             init_cjam(*init_arguments)
             results = [run_cjam(p) for p in parameters]
 
+        good_results = [r for r in results if np.isfinite(r).all()]
+        results = good_results
+        
         # get percentiles of mean velocity and dispersion
         vz = np.percentile([r[0] for r in results], [50, 16, 84, 0.15, 99.85], axis=0)
         sigma = np.percentile([np.sqrt(r[1] - r[0]**2) for r in results], [50, 16, 84, 0.15, 99.85], axis=0)
@@ -320,10 +403,26 @@ class Axisymmetric(Runner):
 
         if filename is not None:
             profile.write(filename, format='ascii.ecsv', overwrite=True)
+            
+        if save_samples:
+            # parameters is a list of dicts, we need a dict with lists
+            # stolen from stackoverflow
+            #v = {k: [dic[k] for dic inparameters] for k in parameters[0]}
+            
+            allsamples = []
+            for i, param in enumerate(parameters):
+                samples = pd.DataFrame({'x': x, 'y': y, 'first_moment': results[i][0], 'second_moment': results[i][1]})
+                for k, v in param.items():
+                    samples[k] = v
+                allsamples.append(samples)
+                
+            allsamples = pd.concat(allsamples, ignore_index=True)
+            fname = filename[:filename.find('.')] + '_allsamples.csv'
+            allsamples.to_csv(fname, index=False)
 
         return profile
 
-    def calculate_mlr_profile(self, mlr, radii=None):
+    def calculate_mlr_profile(self, mlr, radii=None, mge_mass=None):
         """
         The method calculates a radial profile of the mass-to-light ratio.
 
@@ -337,6 +436,9 @@ class Axisymmetric(Runner):
             The radii at which the mass-to-light ratio should be calculated.
             If none are provided, a sequence of log-sampled radii is created
             internally.
+        mge_mass: files.MgeReader
+            If given, use this MGE instead of self.mge_mass. Useful when using 
+            a MGE grid.
 
         Returns
         -------
@@ -346,22 +448,28 @@ class Axisymmetric(Runner):
             The mass-to-light ratio of the cluster as a function of distance
             to the cluster centre.
         """
+        
+        _mge_mass = self.mge_mass if mge_mass is None else mge_mass
+        
+        if mge_mass is not None and radii is None:
+            logger.warning("No radii given but explicit MGE is used. The automatic radii used will be different for different MGEs!")
+        
         if radii is None:
-            rmin = self.mge_mass.data['s'].min().value
-            rmax = self.mge_mass.data['s'].max().value
-            radii = np.logspace(np.log10(rmin) - 0.5, np.log10(rmax) + 0.5, 50) * self.mge_mass.data['s'].unit
+            rmin = _mge_mass.data['s'].min().value
+            rmax = _mge_mass.data['s'].max().value
+            radii = np.logspace(np.log10(rmin) - 0.5, np.log10(rmax) + 0.5, 50) * _mge_mass.data['s'].unit
 
         radii = u.Quantity(radii)
         if radii.unit.is_unity():
-            radii *= self.mge_mass.data['s'].unit
+            radii *= _mge_mass.data['s'].unit
             logger.warning('Cannot determine unit for parameter <r>. Assuming {0}.'.format(radii.unit))
 
-        assert len(mlr) == len(self.mge_mass.data), "Length of parameter <mlr> must match no. of MGE components."
+        assert len(mlr) == len(_mge_mass.data), "Length of parameter <mlr> must match no. of MGE components."
         mlr = u.Quantity(mlr)
 
-        mlr_profile = np.zeros((radii.size,), dtype=np.float64)*self.mge_mass.data['i'].unit*mlr.unit
+        mlr_profile = np.zeros((radii.size,), dtype=np.float64)*_mge_mass.data['i'].unit*mlr.unit
         total = np.zeros_like(mlr_profile)/mlr.unit
-        for j, row in enumerate(self.mge_mass.data):
+        for j, row in enumerate(_mge_mass.data):
             gaussian = row['i']*np.exp(-0.5 * (radii / (np.sqrt(1. - row['q']) * row['s'])) ** 2)
 
             total += gaussian

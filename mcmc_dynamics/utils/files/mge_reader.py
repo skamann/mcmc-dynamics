@@ -2,6 +2,7 @@ import logging
 import numpy as np
 from astropy import units as u
 from astropy.table import QTable
+from astropy import table
 
 
 logger = logging.getLogger(__name__)
@@ -121,3 +122,34 @@ class MgeReader(object):
             mge += row['i']*np.exp((x**2 + y**2/row['q']**2)/(-2.*row['s']**2))
 
         return mge
+    
+def get_mge(filename):
+    # read in the tracer density MGE from the example and add appropriate units
+    _mge = table.Table.read(filename, format='ascii.ecsv')
+
+    _mge['q'] = 0.9
+
+    mge_lum = MgeReader(_mge, lum=True)
+
+    _mge['i'] = _mge['i'] * u.solMass / u.solLum
+    mge_mass = MgeReader(_mge, lum=False)
+
+    return mge_lum, mge_mass
+    
+    
+def _get_dist(x, y, _x, _y):
+    return np.sqrt( (x - _x)**2 + (y - _y)**2 )
+    
+def get_nearest_neigbhbour_idx(x, y, coords):
+    dists = np.asarray([_get_dist(x, y, _x, _y,) for (_x, _y) in coords])
+    return dists.argmin()
+
+def get_nearest_neigbhbour_idx2(x, y, coords_dict):
+    dists = {}
+    for offset, filename in coords_dict.items():
+        dists[offset] = _get_dist(x, y, offset[0], offset[1])
+    min_coord = min(dists, key=dists.get)
+    #min_coord = [k for k, v in dists.items() if v == min_dist][0]
+    
+    return min_coord
+    

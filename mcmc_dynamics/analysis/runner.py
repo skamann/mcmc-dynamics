@@ -3,6 +3,7 @@ import pickle
 import warnings
 import matplotlib.pyplot as plt
 import numpy as np
+from pathos.multiprocessing import Pool
 import corner
 import emcee
 from pathos.multiprocessing import Pool
@@ -200,8 +201,11 @@ class Runner(object):
                     v = u.Quantity(values[i], unit=row['init'].unit)
                 except u.core.UnitTypeError:
                     v = u.Dex(values[i], unit=row['init'].unit)
+                except u.core.UnitConversionError:
+                    v = values[i] * row['init'].unit
                 i += 1
             current_parameters[row['name']] = v
+
         assert i == len(values), 'Not all parameters used.'
 
         return current_parameters
@@ -290,9 +294,11 @@ class Runner(object):
             # trick is used. From both exponents their maximum value is subtracted and added as an additive term to
             # the final log likelihood.
             lnlike_member = -0.5*np.log(2. * np.pi * norm.value) + exponent
+            #print(lnlike_member)
             max_lnlike = np.max([lnlike_member, self.lnlike_background], axis=0)
             lnlike = max_lnlike + np.log(self.pmember*np.exp(lnlike_member - max_lnlike) + (
                     1. - self.pmember)*np.exp(self.lnlike_background - max_lnlike))
+            #print(lnlike.sum())
             return lnlike.sum()
 
     def lnprob(self, values):
@@ -444,6 +450,9 @@ class Runner(object):
                         self.plot_chain(sampler.chain, true_values=true_values, figure=fig,
                                         filename='{0}_chains.png'.format(prefix) if prefix is not None else None)
                 logger.info(output)
+
+        if pool is not None:
+            pool.close()
 
         # return current state of sampler
         return sampler
@@ -632,7 +641,7 @@ class Runner(object):
                 labels.append(self.parameter_labels[row['name']])
         return labels
 
-    def plot_chain(self, chain, filename='chains.png', true_values=None, figure=None, lnprob=None):
+    def plot_chain(self, chain, filename='chains.png', true_values=None, figure=None, lnprob=None, plot_median=False):
         """
         Create a plot showing the current status of the MCMC chains.
 
@@ -687,7 +696,7 @@ class Runner(object):
 
         for i in range(self.n_fitted_parameters):
             if lnprob is None:
-                axes[i].plot(samples[..., i].T, color="k", alpha=0.4)
+                axes[i].plot(samples[..., i].T, color="#AAAAAA", alpha=0.1)
             else:
                 x, _ = np.mgrid[0:samples.shape[1]:1, 0:samples.shape[0]:1]
                 xy = np.dstack((x, samples[..., i].T))
@@ -701,6 +710,12 @@ class Runner(object):
                 line = axes[i].add_collection(lc)
             axes[i].set_ylim(samples[..., i].min(), samples[..., i].max())
             axes[i].yaxis.set_major_locator(MaxNLocator(5))
+            
+            if plot_median:
+                axes[i].plot(np.percentile(samples[..., i].T, 16, axis=1), color='tab:red', alpha=1, lw=1.5)
+                axes[i].plot(np.percentile(samples[..., i].T, 84, axis=1), color='tab:red', alpha=1, lw=1.5)
+                axes[i].plot(np.median(samples[..., i].T, axis=1), color='tab:red', alpha=1, lw=1.5)
+            
             if true_values is not None:
                 axes[i].axhline(true_values[i], color="#888888", lw=2)
             axes[i].set_ylabel(self.labels[i])
