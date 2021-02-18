@@ -3,7 +3,6 @@ import argparse
 import logging
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 from astropy import units as u
 from astropy.table import QTable
 from mcmc_dynamics.analysis import ModelFit, ConstantFit
@@ -62,9 +61,10 @@ if __name__ == "__main__":
 
     initials = [{'name': 'v_sys', 'init': v_sys, 'fixed': True},
                 {'name': 'sigma_max', 'init': sigma_max, 'fixed': False},
-                {'name': 'v_max', 'init': v_max, 'fixed': False},
-                {'name': 'theta_0', 'init': theta_0, 'fixed': False}]
+                {'name': 'v_maxx', 'init': 0.5*v_max, 'fixed': False},
+                {'name': 'v_maxy', 'init': 0.5*v_max, 'fixed': False}]
 
+    # create table for storing results from analysis in radial bins
     radial_profile = QTable()
     for column in ['r mean', 'r min', 'r max']:
         radial_profile[column] = QTable.Column([], unit=data.data['r'].unit)
@@ -73,6 +73,9 @@ if __name__ == "__main__":
             for column in ['median', 'high', 'low']:
                 radial_profile['{0} {1}'.format(parameter['name'], column)] = QTable.Column(
                     [], unit=parameter['init'].unit)
+    for parameter_name, parameter_unit in {'v_max': u.km/u.s, 'theta_0': u.rad}.items():
+        for column in ['median', 'high', 'low']:
+            radial_profile['{0} {1}'.format(parameter_name, column)] = QTable.Column([], unit=parameter_unit)
 
     for i in range(data.data['bin'].max() + 1):
         data_i = data.fetch_radial_bin(i)
@@ -92,6 +95,12 @@ if __name__ == "__main__":
             results_i.extend([results.loc['median'][name], results.loc['uperr'][name], results.loc['loerr'][name]])
             k += 1
 
+        theta_vmax = cf.compute_theta_vmax(chain=sampler.chain, n_burn=50)
+        if theta_vmax is not None:
+            for name in ['v_max', 'theta_0']:
+                results_i.extend(
+                    [theta_vmax.loc['median'][name], theta_vmax.loc['uperr'][name], theta_vmax.loc['loerr'][name]])
+
         radial_profile.add_row(results_i)
 
     radial_profile = QTable(radial_profile)
@@ -101,9 +110,9 @@ if __name__ == "__main__":
     initials = [{'name': 'v_sys', 'init': v_sys, 'fixed': False},
                 {'name': 'sigma_max', 'init': sigma_max, 'fixed': False},
                 {'name': 'a', 'init': a, 'fixed': False},
-                {'name': 'v_max', 'init': v_max, 'fixed': False},
-                {'name': 'r_peak', 'init': r_peak, 'fixed': False},
-                {'name': 'theta_0', 'init': theta_0, 'fixed': False}]
+                {'name': 'v_maxx', 'init': 0.5*v_max, 'fixed': False},
+                {'name': 'v_maxy', 'init': 0.5*v_max, 'fixed': False},
+                {'name': 'r_peak', 'init': r_peak, 'fixed': False}]
 
     mf = ModelFit(data=data, initials=initials)
     sampler = mf()
