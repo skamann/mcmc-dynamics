@@ -153,10 +153,10 @@ class ConstantFit(Runner):
         # Split parameters
         for parameter, value in self.fetch_parameters(values).items():
             if parameter == 'sigma_max' and (value <= 0 or value > 100*u.km/u.s):
-                print('{} causes lnprior = -inf'.format(parameter))
+                logger.debug('{} causes lnprior = -inf'.format(parameter))
                 return -np.inf
             elif parameter in ['v_maxx', 'vmaxy'] and abs(value) > 50*u.km/u.s:
-                print('{} causes lnprior = -inf'.format(parameter))
+                logger.debug('{} causes lnprior = -inf'.format(parameter))
                 return -np.inf
             # elif parameter == 'theta_0' and (value < 0 or value > np.pi*u.rad):
             #     return -np.inf
