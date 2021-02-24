@@ -20,6 +20,16 @@ logger = logging.getLogger(__name__)
 
 
 class Runner(object):
+    """
+    This class serves as parent class for any of the classes provided to
+    analyse the internal kinematics of a stellar system.
+
+    Classes that inherit from `Runner` must at least specify the observables
+    and model parameters required by the analysis (see variables `OBSERVABLES`
+    and `MODEL_PARAMETERS`). Further, they need to define their own `lnlike`
+    method, which takes a set of parameter values as input in order to
+    calculate and return a log likelihood of the model given the data.
+    """
 
     MODEL_PARAMETERS = []
     OBSERVABLES = {'v': u.km/u.s, 'verr': u.km/u.s}
@@ -97,25 +107,12 @@ class Runner(object):
             self.lnlike_background = None
             self.pmember = None
 
-    # @property
-    # def observables(self):
-    #     if self._observables is None:
-    #         self._observables = {'v': u.km/u.s, 'verr': u.km/u.s}
-    #     return self._observables
-
     @property
     def n_data(self):
         """
         Returns the number of data points in the instance.
         """
         return self.data.sample_size
-
-    # @property
-    # def model_parameters(self):
-    #     """
-    #     Returns the names of the parameters used by the model.
-    #     """
-    #     return []
 
     @property
     def fitted_parameters(self):
