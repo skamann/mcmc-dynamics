@@ -150,9 +150,9 @@ class ChemoProfiles(AnalyticalProfiles):
         weights /= weights.sum(axis=1)[:, np.newaxis]
         return x[weights.argmax(axis=0)]
 
-    def fetch_parameters(self, values):
+    def fetch_parameter_values(self, values):
 
-        parameters = super(AnalyticalProfiles, self).fetch_parameters(values)
+        parameters = super(AnalyticalProfiles, self).fetch_parameter_values(values)
 
         _x = self.x_mlr/parameters.pop('r_mlr')
         parameters['mlr'] = (
@@ -176,7 +176,7 @@ class ChemoProfiles(AnalyticalProfiles):
 
     def lnprior(self, values):
 
-        parameters = self.fetch_parameters(values)
+        parameters = self.fetch_parameter_values(values)
 
         for parameter, value in parameters.items():
 
@@ -202,7 +202,7 @@ class ChemoProfiles(AnalyticalProfiles):
 
     def lnlike(self, values, individual=False):
 
-        current_parameters = self.fetch_parameters(values)
+        current_parameters = self.fetch_parameter_values(values)
 
         # convert barq into inclination value
         incl = np.arccos(np.sqrt(

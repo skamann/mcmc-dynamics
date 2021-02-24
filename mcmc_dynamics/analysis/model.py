@@ -39,8 +39,10 @@ class ModelFit(Runner):
     position angle theta (measured from north counterclockwise), the radial
     velocity v and the velocity uncertainty epsilon_v.
     """
+    MODEL_PARAMETERS = ['v_sys', 'v_maxx', 'v_maxy', 'r_peak', 'sigma_max', 'a']
+    OBSERVABLES = {'v': u.km/u.s, 'verr': u.km/u.s, 'r': u.arcsec, 'theta': u.rad}
 
-    def __init__(self, data, initials, **kwargs):
+    def __init__(self, data, parameters, **kwargs):
         """
         Initialize a new instance of the ModelFit class.
 
@@ -50,9 +52,8 @@ class ModelFit(Runner):
             The observed data for a set of n stars. The instance must provide
             at least the radii, the position angles, the velocities, and their
             uncertainties.
-        fixed : dictionary, optional
-            A dictionary containing values of the parameters that should not
-            be optimized during the fit.
+        parameters: instance of Parameters
+            The model parameters.
         kwargs :
             Any additional keyword arguments are passed on to the
             initialization of the parent class.
@@ -61,7 +62,7 @@ class ModelFit(Runner):
         self.r = None
         self.theta = None
 
-        super(ModelFit, self).__init__(data=data, initials=initials, **kwargs)
+        super(ModelFit, self).__init__(data=data, parameters=parameters, **kwargs)
 
         # # get required columns - if units were provided, make sure they are as we expect
         # self.r = u.Quantity(self.data.data['r'])
@@ -78,43 +79,42 @@ class ModelFit(Runner):
         self.rotation_parameters = inspect.signature(self.rotation_model).parameters
         self.dispersion_parameters = inspect.signature(self.dispersion_model).parameters
 
-    @property
-    def observables(self):
-        if self._observables is None:
-            self._observables = super(ModelFit, self).observables
-            self._observables.update({'r': u.arcsec, 'theta': u.rad})
-        return self._observables
+    # @property
+    # def observables(self):
+    #     if self._observables is None:
+    #         self._observables = super(ModelFit, self).observables
+    #         self._observables.update({'r': u.arcsec, 'theta': u.rad})
+    #     return self._observables
 
-    @property
-    def parameters(self):
-        if self._parameters is None:
-            self._parameters = super(ModelFit, self).parameters
-            self._parameters.update({'v_sys': u.km / u.s, 'v_maxx': u.km / u.s, 'v_maxy': u.km / u.s,'r_peak': u.arcsec,
-                                     'sigma_max': u.km / u.s, 'a': u.arcsec})
-        return self._parameters
+    # @property
+    # def parameters(self):
+    #     _parameters = super(ModelFit, self).parameters
+    #     _parameters.update({'v_sys': u.km / u.s, 'v_maxx': u.km / u.s, 'v_maxy': u.km / u.s,'r_peak': u.arcsec,
+    #                         'sigma_max': u.km / u.s, 'a': u.arcsec})
+    #     return _parameters
 
-    @property
-    def parameter_labels(self):
-        labels = {}
-        for row in self.initials:
-            latex_string = row['init'].unit.to_string('latex')
-            if row['name'] == 'v_sys':
-                labels[row['name']] = r'$v_{{\rm sys}}/${0}'.format(latex_string)
-            elif row['name'] == 'v_maxx':
-                labels[row['name']] = r'$v_{{\rm max,\,x}}/${0}'.format(latex_string)
-            elif row['name'] == 'v_maxy':
-                labels[row['name']] = r'$v_{{\rm max,\,y}}/${0}'.format(latex_string)
-            elif row['name'] == 'r_peak':
-                labels[row['name']] = r'$r_{{\rm peak}}/${0}'.format(latex_string)
-            # elif row['name'] == 'theta_0':
-            #     labels[row['name']] = r'$\theta_{{\rm 0}}/${0}'.format(latex_string)
-            elif row['name'] == 'sigma_max':
-                labels[row['name']] = r'$\sigma_{{\rm 0}}/${0}'.format(latex_string)
-            elif row['name'] == 'a':
-                labels[row['name']] = r'$a/${0}'.format(latex_string)
-            else:
-                labels[row['name']] = r'${0}/${1}'.format(row['name'], latex_string)
-        return labels
+    # @property
+    # def parameter_labels(self):
+    #     labels = {}
+    #     for row in self.initials:
+    #         latex_string = row['init'].unit.to_string('latex')
+    #         if row['name'] == 'v_sys':
+    #             labels[row['name']] = r'$v_{{\rm sys}}/${0}'.format(latex_string)
+    #         elif row['name'] == 'v_maxx':
+    #             labels[row['name']] = r'$v_{{\rm max,\,x}}/${0}'.format(latex_string)
+    #         elif row['name'] == 'v_maxy':
+    #             labels[row['name']] = r'$v_{{\rm max,\,y}}/${0}'.format(latex_string)
+    #         elif row['name'] == 'r_peak':
+    #             labels[row['name']] = r'$r_{{\rm peak}}/${0}'.format(latex_string)
+    #         # elif row['name'] == 'theta_0':
+    #         #     labels[row['name']] = r'$\theta_{{\rm 0}}/${0}'.format(latex_string)
+    #         elif row['name'] == 'sigma_max':
+    #             labels[row['name']] = r'$\sigma_{{\rm 0}}/${0}'.format(latex_string)
+    #         elif row['name'] == 'a':
+    #             labels[row['name']] = r'$a/${0}'.format(latex_string)
+    #         else:
+    #             labels[row['name']] = r'${0}/${1}'.format(row['name'], latex_string)
+    #     return labels
 
     def dispersion_model(self, sigma_max, a=1, **kwargs):
         """
@@ -190,38 +190,38 @@ class ModelFit(Runner):
         x_pa = self.r * np.sin(self.theta - theta_0)
         return v_sys + 2. * (v_max / r_peak) * x_pa / (1. + (x_pa / r_peak) ** 2)
 
-    def lnprior(self, values):
-        """
-        Check if the priors for the model parameters are fulfilled.
-
-        This method implements the priors needed for the MCMC estimation
-        of the uncertainties. Uninformative priors are used, i.e. the
-        likelihoods are constant across the accepted value range and zero
-        otherwise.
-
-        Parameters
-        ----------
-        values : array_like
-            The current values of the model parameters.
-
-        Returns
-        -------
-        loglike : float
-            The log likelihood of the model for the given parameters. As
-            uninformative priors are used, the log likelihood will be zero
-            for valid parameters and -inf otherwise.
-        """
-        # Split parameters
-        for parameter, value in self.fetch_parameters(values).items():
-            if parameter == 'sigma_max' and (value <= 0 or value > 100*u.km/u.s):
-                return -np.inf
-            elif parameter in ['v_maxx', 'v_maxy'] and abs(value) > 50*u.km/u.s:
-                return -np.inf
-            # elif parameter == 'theta_0' and (value < 0 or value > np.pi*u.rad):
-            #     return -np.inf
-            elif parameter in ['r_peak', 'a'] and not 0 < value <= 3.*u.arcmin:
-                return -np.inf
-        return 0
+    # def lnprior(self, values):
+    #     """
+    #     Check if the priors for the model parameters are fulfilled.
+    #
+    #     This method implements the priors needed for the MCMC estimation
+    #     of the uncertainties. Uninformative priors are used, i.e. the
+    #     likelihoods are constant across the accepted value range and zero
+    #     otherwise.
+    #
+    #     Parameters
+    #     ----------
+    #     values : array_like
+    #         The current values of the model parameters.
+    #
+    #     Returns
+    #     -------
+    #     loglike : float
+    #         The log likelihood of the model for the given parameters. As
+    #         uninformative priors are used, the log likelihood will be zero
+    #         for valid parameters and -inf otherwise.
+    #     """
+    #     # Split parameters
+    #     for parameter, value in self.fetch_parameter_values(values).items():
+    #         if parameter == 'sigma_max' and (value <= 0 or value > 100*u.km/u.s):
+    #             return -np.inf
+    #         elif parameter in ['v_maxx', 'v_maxy'] and abs(value) > 50*u.km/u.s:
+    #             return -np.inf
+    #         # elif parameter == 'theta_0' and (value < 0 or value > np.pi*u.rad):
+    #         #     return -np.inf
+    #         elif parameter in ['r_peak', 'a'] and not 0 < value <= 3.*u.arcmin:
+    #             return -np.inf
+    #     return 0
 
     def lnlike(self, values):
         """
@@ -250,7 +250,7 @@ class ModelFit(Runner):
         kwargs_rotation = {}
         kwargs_dispersion = {}
 
-        for parameter, value in self.fetch_parameters(values).items():
+        for parameter, value in self.fetch_parameter_values(values).items():
             if parameter in self.rotation_parameters.keys():
                 kwargs_rotation[parameter] = value
             elif parameter in self.dispersion_parameters.keys():
@@ -265,36 +265,36 @@ class ModelFit(Runner):
         # calculate log-likelihood
         return self._calculate_lnlike(v_los=v_los, sigma_los=sigma_los)
 
-    def get_initials(self, n_walkers):
-        """
-        Create initial values for the MCMC chains.
+    # def get_initials(self, n_walkers):
+    #     """
+    #     Create initial values for the MCMC chains.
+    #
+    #     Parameters
+    #     ----------
+    #     n_walkers : int
+    #         The number of walkers for which initial guesses should be created.
+    #
+    #     Returns
+    #     -------
+    #     initials : ndarray
+    #         The initial guesses for the requested number of chains.
+    #     """
+    #     # define initial positions of the walkers in parameter space
+    #     initials = np.zeros((n_walkers, self.n_fitted_parameters))
+    #     i = 0
+    #     for row in self.initials:
+    #         if row['fixed']:
+    #             continue
+    #         # if row['name'] == 'theta_0':
+    #         #     initials[:, i] = np.pi * np.random.rand(n_walkers)
+    #         elif row['name'] in ['r_peak', 'a']:
+    #             initials[:, i] = row['init'] * np.random.lognormal(0.0, 0.2, n_walkers)
+    #         else:
+    #             initials[:, i] = row['init'] + np.random.randn(n_walkers)*row['init'].unit
+    #         i += 1
+    #     return initials
 
-        Parameters
-        ----------
-        n_walkers : int
-            The number of walkers for which initial guesses should be created.
-
-        Returns
-        -------
-        initials : ndarray
-            The initial guesses for the requested number of chains.
-        """
-        # define initial positions of the walkers in parameter space
-        initials = np.zeros((n_walkers, self.n_fitted_parameters))
-        i = 0
-        for row in self.initials:
-            if row['fixed']:
-                continue
-            # if row['name'] == 'theta_0':
-            #     initials[:, i] = np.pi * np.random.rand(n_walkers)
-            elif row['name'] in ['r_peak', 'a']:
-                initials[:, i] = row['init'] * np.random.lognormal(0.0, 0.2, n_walkers)
-            else:
-                initials[:, i] = row['init'] + np.random.randn(n_walkers)*row['init'].unit
-            i += 1
-        return initials
-
-    def create_profiles(self, chains, n_burn, filename=None):
+    def create_profiles(self, chains, n_burn, radii=None, filename=None):
         """
         Converts the parameter distributions returned by the MCMC analysis
         into radial profiles of the rotation amplitude and velocity
@@ -309,6 +309,8 @@ class ModelFit(Runner):
         n_burn : int
             The number of steps that are ignored at the beginning of each MCMC
             chain.
+        radii : array_like, optional
+            The radii at which the profiles should be calculated.
         filename : str, optional
             Name of a csv-file in which the resulting profiles will be stored.
 
@@ -320,11 +322,11 @@ class ModelFit(Runner):
         fitted_models = {}
 
         i = 0
-        for row in self.initials:
-            if row['fixed']:
-                fitted_models[row['name']] = row['init']
+        for name, parameter in self.parameters.items():
+            if parameter.fixed:
+                fitted_models[name] = u.Quantity(parameter.value, parameter.unit)
             else:
-                fitted_models[row['name']] = chains[:, n_burn:, i].flatten()*row['init'].unit
+                fitted_models[name] = u.Quantity(chains[:, n_burn:, i].flatten(), parameter.unit)
                 i += 1
 
         v_maxx = fitted_models['v_maxx']
@@ -333,7 +335,12 @@ class ModelFit(Runner):
         sigma_max = fitted_models['sigma_max']
         a = fitted_models['a']
 
-        radii = np.logspace(-1, 2.5, 50)*u.arcsec
+        if radii is None:
+            radii = np.logspace(-1, 2.5, 50)*u.arcsec
+        else:
+            radii = u.Quantity(radii)
+            if isinstance(radii.unit, u.dimensionless_unscaled):
+                radii = radii*r_peak.unit
 
         v_max = np.sqrt(v_maxx**2 + v_maxy**2)
         v_rot = 2. * (v_max / r_peak) * radii[:, np.newaxis] / (1. + (radii[:, np.newaxis] / r_peak) ** 2)
@@ -367,7 +374,10 @@ class ModelFitGB(ModelFit):
     A child class of ModelFit that includes a background component
     approximated by a Gaussian in radial velocity space.
     """
-    def __init__(self, data, initials, **kwargs):
+    MODEL_PARAMETERS = ['v_back', 'sigma_back', 'f_back', 'v_sys', 'v_maxx', 'v_maxy', 'r_peak', 'sigma_max', 'a']
+    OBSERVABLES = {'v': u.km/u.s, 'verr': u.km/u.s, 'r': u.arcsec, 'theta': u.rad, 'density': u.dimensionless_unscaled}
+
+    def __init__(self, data, parameters, **kwargs):
         """
         Initialize a new instance of the ConstantFitGB class.
 
@@ -379,10 +389,8 @@ class ModelFitGB(ModelFit):
             ConstantFit class, the data also need to include a column named
             'density', containing the normalized stellar surface density at
             the location of each star.
-        initials : list of dictionaries
-            The status of the model parameters in the analysis. For each
-             parameter in the analysis, at least the entries 'name',
-            'init', and 'fixed' must be provided.
+        parameters : instance of Parameters
+            The model parameters
         kwargs
             Any additional keyword arguments are passed to the initialization
             of the parent class.
@@ -396,44 +404,35 @@ class ModelFitGB(ModelFit):
             logger.error('Class ConstantFitGB does not support additional background components.')
 
         # call parent class initialisation.
-        super(ModelFitGB, self).__init__(data=data, initials=initials, **kwargs)
+        super(ModelFitGB, self).__init__(data=data, parameters=parameters, **kwargs)
 
-    @property
-    def observables(self):
-        if self._observables is None:
-            self._observables = super(ModelFitGB, self).observables
-            self._observables['density'] = u.dimensionless_unscaled
-        return self._observables
+    # @property
+    # def observables(self):
+    #     _observables = super(ModelFitGB, self).observables
+    #     _observables['density'] = u.dimensionless_unscaled
+    #     return _observables
 
-    @property
-    def parameters(self):
-        if self._parameters is None:
-            self._parameters = super(ModelFitGB, self).parameters
-            self._parameters.update(
-                {'v_back': u.km / u.s, 'sigma_back': u.km / u.s, 'f_back': u.dimensionless_unscaled})
-        return self._parameters
+    # @property
+    # def parameter_labels(self):
+    #
+    #     labels = super(ModelFitGB, self).parameter_labels
+    #     for row in self.initials:
+    #         latex_string = row['init'].unit.to_string('latex')
+    #         if row['name'] == 'v_back':
+    #             labels[row['name']] = r'$v_{{\rm back}}/${0}'.format(latex_string)
+    #         elif row['name'] == 'sigma_back':
+    #             labels[row['name']] = r'$\sigma_{{\rm back}}/${0}'.format(latex_string)
+    #         elif row['name'] == 'f_back':
+    #             labels[row['name']] = r'$f_{\rm back}$'
+    #     return labels
 
-    @property
-    def parameter_labels(self):
-
-        labels = super(ModelFitGB, self).parameter_labels
-        for row in self.initials:
-            latex_string = row['init'].unit.to_string('latex')
-            if row['name'] == 'v_back':
-                labels[row['name']] = r'$v_{{\rm back}}/${0}'.format(latex_string)
-            elif row['name'] == 'sigma_back':
-                labels[row['name']] = r'$\sigma_{{\rm back}}/${0}'.format(latex_string)
-            elif row['name'] == 'f_back':
-                labels[row['name']] = r'$f_{\rm back}$'
-        return labels
-
-    def lnprior(self, values):
-        for parameter, value in self.fetch_parameters(values).items():
-            if parameter == 'f_back' and (value < 0 or value > 1):
-                return -np.inf
-            elif parameter == 'sigma_back' and (value <= 0 or value > 100 * u.km / u.s):
-                return -np.inf
-        return super(ModelFitGB, self).lnprior(values)
+    # def lnprior(self, values):
+    #     for parameter, value in self.fetch_parameter_values(values).items():
+    #         if parameter == 'f_back' and (value < 0 or value > 1):
+    #             return -np.inf
+    #         elif parameter == 'sigma_back' and (value <= 0 or value > 100 * u.km / u.s):
+    #             return -np.inf
+    #     return super(ModelFitGB, self).lnprior(values)
 
     def lnlike(self, values):
         """
@@ -458,7 +457,7 @@ class ModelFitGB(ModelFit):
         loglike : float
             The log likelihood of the data given the current model.
         """
-        parameter_dict = self.fetch_parameters(values)
+        parameter_dict = self.fetch_parameter_values(values)
 
         # calculate log-likelihoods for background population
         v_back = parameter_dict.pop('v_back')
@@ -500,19 +499,19 @@ class ModelFitGB(ModelFit):
         lnlike = max_lnlike + np.log(m*np.exp(lnlike_cluster - max_lnlike) + (1. - m)*np.exp(lnlike_back - max_lnlike))
         return lnlike.sum()
 
-    def get_initials(self, n_walkers):
-
-        initials = super(ModelFitGB, self).get_initials(n_walkers)
-
-        i = 0
-        for row in self.initials:
-            if row['fixed']:
-                continue
-            if row['name'] == 'f_back':
-                initials[:, i] = 2.*row['init']*np.random.random_sample(n_walkers)
-            i += 1
-
-        return initials
+    # def get_initials(self, n_walkers):
+    #
+    #     initials = super(ModelFitGB, self).get_initials(n_walkers)
+    #
+    #     i = 0
+    #     for row in self.initials:
+    #         if row['fixed']:
+    #             continue
+    #         if row['name'] == 'f_back':
+    #             initials[:, i] = 2.*row['init']*np.random.random_sample(n_walkers)
+    #         i += 1
+    #
+    #     return initials
 
     def calculate_membership_probabilities(self, chain, n_burn):
 
@@ -521,9 +520,9 @@ class ModelFitGB(ModelFit):
         _ = parameters.pop('value')
 
         # add constant parameters
-        for row in self.initials:
-            if row['fixed']:
-                parameters[row['name']] = row['init']
+        for name, parameter in self.parameters.items():
+            if parameter.fixed:
+                parameters[name] = parameter.value
 
         # calculate log-likelihoods for background population
         v_back = parameters.pop('v_back')

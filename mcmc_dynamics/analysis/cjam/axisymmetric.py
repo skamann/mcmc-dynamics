@@ -150,7 +150,7 @@ class Axisymmetric(Runner):
 
     def lnprior(self, values):
         p = 0
-        current_parameters = self.fetch_parameters(values)
+        current_parameters = self.fetch_parameter_values(values)
         
         for parameter, value in current_parameters.items():
             if parameter == 'd' and value <= 0.5*u.kpc:
@@ -174,7 +174,7 @@ class Axisymmetric(Runner):
         x = np.copy(self.x)
         y = np.copy(self.y)
         
-        current_parameters = self.fetch_parameters(values)
+        current_parameters = self.fetch_parameter_values(values)
         
         unique_id = uuid.uuid4()
 

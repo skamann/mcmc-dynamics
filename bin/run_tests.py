@@ -3,9 +3,13 @@ import argparse
 import logging
 import matplotlib.pyplot as plt
 import numpy as np
+
+from scipy import stats
 from astropy import units as u
 from astropy.table import QTable
+
 from mcmc_dynamics.analysis import ModelFit, ConstantFit
+from mcmc_dynamics.parameter import Parameter, Parameters
 from mcmc_dynamics.utils.plots import ProfilePlot
 from mcmc_dynamics.utils.files import DataReader
 
@@ -17,7 +21,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description='Test MCMC code using mock data created on-the-fly.')
     parser.add_argument('-n', '--nstars', type=int, default=300, help='The number of mock stars.')
-    parser.add_argument('-r', '--rmax', type=float, default=1.0, help='Maximum data radius relative to scale radius.')
+    parser.add_argument('-r', '--rmax', type=float, default=2.0, help='Maximum data radius relative to scale radius.')
     parser.add_argument('--vsigma', type=float, default=0.5, help='Ratio between max. rotation and dispersion.')
     parser.add_argument('--errscale', type=float, default=0.1, help='Ratio between avg. uncertainty and dispersion.')
     parser.add_argument('-s', '--seed', type=int, default=None, help='Seed to initialize random-number generator.')
@@ -59,20 +63,28 @@ if __name__ == "__main__":
     logger.info('Analysing kinematics in radial bins ...')
     data.make_radial_bins(nstars=50, dlogr=0.1)
 
-    initials = [{'name': 'v_sys', 'init': v_sys, 'fixed': True},
-                {'name': 'sigma_max', 'init': sigma_max, 'fixed': False},
-                {'name': 'v_maxx', 'init': 0.5*v_max, 'fixed': False},
-                {'name': 'v_maxy', 'init': 0.5*v_max, 'fixed': False}]
+    parameters = Parameters(usersyms={'norm': stats.norm})
+    parameters.add(name='v_sys', value=v_sys, fixed=True)
+    parameters.add(name='sigma_max', value=sigma_max, fixed=False, min=0, initials='norm(loc=5, scale=1).rvs')
+    parameters.add(name='v_maxx', value=0.5*v_max, fixed=False,
+                   initials='norm(loc={0}, scale=1).rvs'.format(0.5*v_max.value))
+    parameters.add(name='v_maxy', value=0.5*v_max, fixed=False,
+                   initials='norm(loc={0}, scale=1).rvs'.format(0.5*v_max.value))
+    parameters.pretty_print()
+
+    # initials = [{'name': 'v_sys', 'init': v_sys, 'fixed': True},
+    #             {'name': 'sigma_max', 'init': sigma_max, 'fixed': False},
+    #             {'name': 'v_maxx', 'init': 0.5*v_max, 'fixed': False},
+    #             {'name': 'v_maxy', 'init': 0.5*v_max, 'fixed': False}]
 
     # create table for storing results from analysis in radial bins
     radial_profile = QTable()
     for column in ['r mean', 'r min', 'r max']:
         radial_profile[column] = QTable.Column([], unit=data.data['r'].unit)
-    for parameter in initials:
-        if not parameter['fixed']:
+    for name, parameter in parameters.items():
+        if not parameter.fixed:
             for column in ['median', 'high', 'low']:
-                radial_profile['{0} {1}'.format(parameter['name'], column)] = QTable.Column(
-                    [], unit=parameter['init'].unit)
+                radial_profile['{0} {1}'.format(name, column)] = QTable.Column([], unit=parameter.unit)
     for parameter_name, parameter_unit in {'v_max': u.km/u.s, 'theta_0': u.rad}.items():
         for column in ['median', 'high', 'low']:
             radial_profile['{0} {1}'.format(parameter_name, column)] = QTable.Column([], unit=parameter_unit)
@@ -82,16 +94,17 @@ if __name__ == "__main__":
 
         results_i = [data_i.data['r'].mean(), data_i.data['r'].min(), data_i.data['r'].max()]
 
-        cf = ConstantFit(data_i, initials=initials, background=None)
-        sampler = cf(n_walkers=100, n_steps=100)
-
+        cf = ConstantFit(data_i, parameters=parameters, background=None)
+        sampler = cf(n_walkers=100, n_steps=100, n_threads=1)
+        # cf.plot_chain(chain=sampler.chain)
+        # cf.create_triangle_plot(chain=sampler.chain, n_burn=50)
+        # plt.show()
         results = cf.compute_bestfit_values(chain=sampler.chain, n_burn=50)
 
         k = 0
-        for parameter in cf.initials:
-            if parameter['fixed']:
+        for name, parameter in cf.parameters.items():
+            if parameter.fixed:
                 continue
-            name = parameter['name']
             results_i.extend([results.loc['median'][name], results.loc['uperr'][name], results.loc['loerr'][name]])
             k += 1
 
@@ -107,15 +120,25 @@ if __name__ == "__main__":
 
     logger.info('Fitting radial model to data ...')
 
-    initials = [{'name': 'v_sys', 'init': v_sys, 'fixed': False},
-                {'name': 'sigma_max', 'init': sigma_max, 'fixed': False},
-                {'name': 'a', 'init': a, 'fixed': False},
-                {'name': 'v_maxx', 'init': 0.5*v_max, 'fixed': False},
-                {'name': 'v_maxy', 'init': 0.5*v_max, 'fixed': False},
-                {'name': 'r_peak', 'init': r_peak, 'fixed': False}]
+    parameters = Parameters(usersyms={'norm': stats.norm, 'lognorm': stats.lognorm})
+    parameters.add(name='v_sys', value=v_sys, min=v_sys-10.*u.km/u.s, max=v_sys+10.*u.km/u.s, fixed=False)
+    parameters.add(name='sigma_max', value=sigma_max, fixed=False, min=0, initials='norm(loc=5, scale=1).rvs')
+    parameters.add(name='a', value=a, fixed=False, min=0, initials='lognorm(s=1, loc={0}).rvs'.format(a.value))
+    parameters.add(name='v_maxx', value=0.5 * v_max, fixed=False,
+                   initials='norm(loc={0}, scale=1).rvs'.format(0.5 * v_max.value))
+    parameters.add(name='v_maxy', value=0.5 * v_max, fixed=False,
+                   initials='norm(loc={0}, scale=1).rvs'.format(0.5 * v_max.value))
+    parameters.add(name='r_peak', value=r_peak, fixed=False, min=0, max=10.*u.arcmin)
+    parameters.pretty_print()
+    # initials = [{'name': 'v_sys', 'init': v_sys, 'fixed': False},
+    #             {'name': 'sigma_max', 'init': sigma_max, 'fixed': False},
+    #             {'name': 'a', 'init': a, 'fixed': False},
+    #             {'name': 'v_maxx', 'init': 0.5*v_max, 'fixed': False},
+    #             {'name': 'v_maxy', 'init': 0.5*v_max, 'fixed': False},
+    #             {'name': 'r_peak', 'init': r_peak, 'fixed': False}]
 
-    mf = ModelFit(data=data, initials=initials)
-    sampler = mf()
+    mf = ModelFit(data=data, parameters=parameters)
+    sampler = mf(n_threads=1)
 
     _ = mf.plot_chain(chain=sampler.chain, lnprob=sampler.lnprobability)
 

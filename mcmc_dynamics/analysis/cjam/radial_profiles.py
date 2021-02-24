@@ -51,9 +51,9 @@ class RadialProfiles(Axisymmetric):
                 labels[row['name']] = r'${0}/${1}'.format(row['name'], latex_string)
         return labels
 
-    def fetch_parameters(self, values):
+    def fetch_parameter_values(self, values):
 
-        parameters = super(RadialProfiles, self).fetch_parameters(values)
+        parameters = super(RadialProfiles, self).fetch_parameter_values(values)
 
         # collect all kappa and mlr values in arrays
         mlr = np.zeros((self.mge_mass.n_components, ), dtype=np.float64)*self.parameters['mlr1']
@@ -85,7 +85,7 @@ class RadialProfiles(Axisymmetric):
 
     def lnprior(self, values):
 
-        for parameter, value in self.fetch_parameters(values).items():
+        for parameter, value in self.fetch_parameter_values(values).items():
             if parameter == 'd' and value <= 0.5*u.kpc:
                 return -np.inf
             elif parameter == 'mlr' and (value <= 0.1).any():
@@ -169,9 +169,9 @@ class AnalyticalProfiles(Axisymmetric):
                 labels[row['name']] = r'${0}/${1}'.format(row['name'], latex_string)
         return labels
 
-    def fetch_parameters(self, values, return_rkappa=False, return_mge=False):
+    def fetch_parameter_values(self, values, return_rkappa=False, return_mge=False):
 
-        parameters = super(AnalyticalProfiles, self).fetch_parameters(values)
+        parameters = super(AnalyticalProfiles, self).fetch_parameter_values(values)
         
         if self.use_mge_grid:
             # find out which MGE profile to use based on the current offset
@@ -211,7 +211,7 @@ class AnalyticalProfiles(Axisymmetric):
         # some priors depend on the current MGE profile, so we need to get it
         # (since it is not saved as self.xyz)
         if self.use_mge_grid:
-            _, mge_lum, mge_mass = self.fetch_parameters(values, return_mge=True)
+            _, mge_lum, mge_mass = self.fetch_parameter_values(values, return_mge=True)
         else:
             mge_lum, mge_mass = self.mge_lum, self.mge_mass
         

@@ -347,7 +347,7 @@ def plot_kappas(runner, chain):
     kappas = []
     rkappas = []
     for walker in chain:
-        p, rk = runner.fetch_parameters(walker[-1], return_rkappa=True)
+        p, rk = runner.fetch_parameter_values(walker[-1], return_rkappa=True)
         k = p["kappa"]
 
         rkappas.append(rk.value)
