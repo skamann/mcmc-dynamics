@@ -1,9 +1,12 @@
 import inspect
 import logging
 import numpy as np
+import importlib.resources as pkg_resources
 from astropy import units as u
 from astropy.table import QTable
 from .runner import Runner
+from .. import config
+from ..parameter import Parameters
 
 
 logger = logging.getLogger(__name__)
@@ -14,7 +17,7 @@ class ConstantFit(Runner):
     MODEL_PARAMETERS = ['v_sys', 'sigma_max', 'v_maxx', 'v_maxy']
     OBSERVABLES = {'v': u.km/u.s, 'verr': u.km/u.s, 'theta': u.rad}
 
-    def __init__(self, data, parameters, **kwargs):
+    def __init__(self, data, parameters=None, **kwargs):
         """
         Initialize a new instance of the ConstantFit class.
 
@@ -23,7 +26,7 @@ class ConstantFit(Runner):
         data : instance of DataReader
             The observed data for a set of n stars. The instance must provide
             at least the velocities and their uncertainties.
-        parameters : instance of Parameters
+        parameters : instance of Parameters, optional
             The model parameters.
         kwargs
             Any extra keyword arguments are forwarded to the initialization of
@@ -31,6 +34,9 @@ class ConstantFit(Runner):
         """
         # required observables
         self.theta = None
+
+        if parameters is None:
+            parameters = Parameters().load(pkg_resources.open_text(config, 'constant.json'))
 
         super(ConstantFit, self).__init__(data=data, parameters=parameters, **kwargs)
 

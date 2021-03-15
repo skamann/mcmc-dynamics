@@ -63,81 +63,61 @@ if __name__ == "__main__":
     logger.info('Analysing kinematics in radial bins ...')
     data.make_radial_bins(nstars=50, dlogr=0.1)
 
-    parameters = Parameters(usersyms={'norm': stats.norm})
-    parameters.add(name='v_sys', value=v_sys, fixed=True)
-    parameters.add(name='sigma_max', value=sigma_max, fixed=False, min=0, initials='norm(loc=5, scale=1).rvs')
-    parameters.add(name='v_maxx', value=0.5*v_max, fixed=False,
-                   initials='norm(loc={0}, scale=1).rvs'.format(0.5*v_max.value))
-    parameters.add(name='v_maxy', value=0.5*v_max, fixed=False,
-                   initials='norm(loc={0}, scale=1).rvs'.format(0.5*v_max.value))
-    parameters.pretty_print()
-
-    # initials = [{'name': 'v_sys', 'init': v_sys, 'fixed': True},
-    #             {'name': 'sigma_max', 'init': sigma_max, 'fixed': False},
-    #             {'name': 'v_maxx', 'init': 0.5*v_max, 'fixed': False},
-    #             {'name': 'v_maxy', 'init': 0.5*v_max, 'fixed': False}]
-
     # create table for storing results from analysis in radial bins
-    radial_profile = QTable()
-    for column in ['r mean', 'r min', 'r max']:
-        radial_profile[column] = QTable.Column([], unit=data.data['r'].unit)
-    for name, parameter in parameters.items():
-        if not parameter.fixed:
-            for column in ['median', 'high', 'low']:
-                radial_profile['{0} {1}'.format(name, column)] = QTable.Column([], unit=parameter.unit)
-    for parameter_name, parameter_unit in {'v_max': u.km/u.s, 'theta_0': u.rad}.items():
-        for column in ['median', 'high', 'low']:
-            radial_profile['{0} {1}'.format(parameter_name, column)] = QTable.Column([], unit=parameter_unit)
+    radial_bins = []
+    column_names = ('r mean', 'r min', 'r max')
 
     for i in range(data.data['bin'].max() + 1):
         data_i = data.fetch_radial_bin(i)
 
-        results_i = [data_i.data['r'].mean(), data_i.data['r'].min(), data_i.data['r'].max()]
-
-        cf = ConstantFit(data_i, parameters=parameters, background=None)
+        cf = ConstantFit(data_i, parameters=None, background=None)
+        if i == 0:
+            cf.parameters.pretty_print()
         sampler = cf(n_walkers=100, n_steps=100, n_threads=1)
         # cf.plot_chain(chain=sampler.chain)
         # cf.create_triangle_plot(chain=sampler.chain, n_burn=50)
         # plt.show()
-        results = cf.compute_bestfit_values(chain=sampler.chain, n_burn=50)
 
-        k = 0
+        results_i = (data_i.data['r'].mean(), data_i.data['r'].min(), data_i.data['r'].max())
+
+        bestfit_values = cf.compute_bestfit_values(chain=sampler.chain, n_burn=50)
         for name, parameter in cf.parameters.items():
             if parameter.fixed:
                 continue
-            results_i.extend([results.loc['median'][name], results.loc['uperr'][name], results.loc['loerr'][name]])
-            k += 1
+            results_i = results_i + (bestfit_values.loc['median'][name],
+                                     bestfit_values.loc['uperr'][name],
+                                     bestfit_values.loc['loerr'][name])
+            if i == 0:
+                column_names = column_names + (name + ' median', name + ' high', name + ' low')
 
         theta_vmax = cf.compute_theta_vmax(chain=sampler.chain, n_burn=50)
         if theta_vmax is not None:
             for name in ['v_max', 'theta_0']:
-                results_i.extend(
-                    [theta_vmax.loc['median'][name], theta_vmax.loc['uperr'][name], theta_vmax.loc['loerr'][name]])
+                results_i = results_i + (theta_vmax.loc['median'][name],
+                                         theta_vmax.loc['uperr'][name],
+                                         theta_vmax.loc['loerr'][name])
+                if i == 0:
+                    column_names = column_names + (name + ' median', name + ' high', name + ' low')
 
-        radial_profile.add_row(results_i)
+        radial_bins.append(results_i)
 
-    radial_profile = QTable(radial_profile)
+    radial_profile = QTable(rows=radial_bins, names=column_names)
+    print(radial_profile)
 
     logger.info('Fitting radial model to data ...')
 
-    parameters = Parameters(usersyms={'norm': stats.norm, 'lognorm': stats.lognorm})
-    parameters.add(name='v_sys', value=v_sys, min=v_sys-10.*u.km/u.s, max=v_sys+10.*u.km/u.s, fixed=False)
-    parameters.add(name='sigma_max', value=sigma_max, fixed=False, min=0, initials='norm(loc=5, scale=1).rvs')
-    parameters.add(name='a', value=a, fixed=False, min=0, initials='lognorm(s=1, loc={0}).rvs'.format(a.value))
-    parameters.add(name='v_maxx', value=0.5 * v_max, fixed=False,
-                   initials='norm(loc={0}, scale=1).rvs'.format(0.5 * v_max.value))
-    parameters.add(name='v_maxy', value=0.5 * v_max, fixed=False,
-                   initials='norm(loc={0}, scale=1).rvs'.format(0.5 * v_max.value))
-    parameters.add(name='r_peak', value=r_peak, fixed=False, min=0, max=10.*u.arcmin)
-    parameters.pretty_print()
-    # initials = [{'name': 'v_sys', 'init': v_sys, 'fixed': False},
-    #             {'name': 'sigma_max', 'init': sigma_max, 'fixed': False},
-    #             {'name': 'a', 'init': a, 'fixed': False},
-    #             {'name': 'v_maxx', 'init': 0.5*v_max, 'fixed': False},
-    #             {'name': 'v_maxy', 'init': 0.5*v_max, 'fixed': False},
-    #             {'name': 'r_peak', 'init': r_peak, 'fixed': False}]
+    # parameters = Parameters(usersyms={'norm': stats.norm, 'lognorm': stats.lognorm})
+    # parameters.add(name='v_sys', value=v_sys, min=v_sys-10.*u.km/u.s, max=v_sys+10.*u.km/u.s, fixed=False)
+    # parameters.add(name='sigma_max', value=sigma_max, fixed=False, min=0, initials='norm(loc=5, scale=1).rvs')
+    # parameters.add(name='a', value=a, fixed=False, min=0, initials='lognorm(s=1, loc={0}).rvs'.format(a.value))
+    # parameters.add(name='v_maxx', value=0.5 * v_max, fixed=False,
+    #                initials='norm(loc={0}, scale=1).rvs'.format(0.5 * v_max.value))
+    # parameters.add(name='v_maxy', value=0.5 * v_max, fixed=False,
+    #                initials='norm(loc={0}, scale=1).rvs'.format(0.5 * v_max.value))
+    # parameters.add(name='r_peak', value=r_peak, fixed=False, min=0, max=10.*u.arcmin)
+    # parameters.pretty_print()
 
-    mf = ModelFit(data=data, parameters=parameters)
+    mf = ModelFit(data=data, parameters=None)
     sampler = mf(n_threads=1)
 
     _ = mf.plot_chain(chain=sampler.chain, lnprob=sampler.lnprobability)

@@ -5,6 +5,7 @@ from copy import deepcopy
 from collections import OrderedDict
 from scipy import stats
 from astropy import units as u
+from astropy.utils.misc import JsonCustomEncoder
 from lmfit.jsonutils import decode4js, encode4js
 from lmfit.printfuncs import params_html_table
 from asteval import Interpreter, get_ast_names, valid_symbol_name
@@ -39,7 +40,7 @@ class Parameters(OrderedDict):
 
     """
 
-    def __init__(self, usersyms=None, *args, **kwargs):
+    def __init__(self, usersyms=None, rng_seed=None, *args, **kwargs):
         """
         Arguments
         ---------
@@ -60,6 +61,9 @@ class Parameters(OrderedDict):
             _syms.update(usersyms)
         for key, val in _syms.items():
             self._asteval.symtable[key] = val
+
+        self._asteval.symtable['rng_seed'] = rng_seed
+        self._asteval.symtable['rng'] = np.random.default_rng(self._asteval.symtable['rng_seed'])
 
     def copy(self):
         """Parameters.copy() should always be a deepcopy."""
@@ -177,8 +181,16 @@ class Parameters(OrderedDict):
 
         symtab = self._asteval.symtable
         for key, val in state['unique_symbols'].items():
-            if key not in symtab:
+            if key not in symtab or val != symtab[key]:
                 symtab[key] = val
+
+                # # if seed for random number generator changed, reset it
+                # if key == 'rng_seed':
+                #     symtab['rng'] = np.random.default_rng(symtab['rng_seed'])
+
+        # if available, set state of random number generator
+        if 'random_state' in state.keys() and state['random_state'] is not None:
+            symtab['rng'].bit_generator.__setstate__(state['random_state'])
 
         # then add all the parameters
         self.add_many(*state['params'])
@@ -412,8 +424,12 @@ class Parameters(OrderedDict):
         sym_unique = self._asteval.user_defined_symbols()
         unique_symbols = {key: encode4js(deepcopy(self._asteval.symtable[key]))
                           for key in sym_unique}
-        return json.dumps({'unique_symbols': unique_symbols,
-                           'params': params}, **kws)
+
+        random_state = unique_symbols['rng'].bit_generator.state
+        del unique_symbols['rng']
+
+        return json.dumps({'unique_symbols': unique_symbols, 'random_state': random_state,
+                           'params': params}, cls=JsonCustomEncoder, **kws)
 
     def loads(self, s, **kws):
         """Load Parameters from a JSON string.
@@ -443,10 +459,12 @@ class Parameters(OrderedDict):
         self.clear()
 
         tmp = json.loads(s, **kws)
+
         unique_symbols = {key: decode4js(tmp['unique_symbols'][key]) for key
                           in tmp['unique_symbols']}
+        random_state = tmp['random_state'] if 'random_state' in tmp.keys() else None
 
-        state = {'unique_symbols': unique_symbols, 'params': []}
+        state = {'unique_symbols': unique_symbols, 'random_state': random_state, 'params': []}
         for parstate in tmp['params']:
             _par = Parameter(name='')
             _par.__setstate__(parstate)
@@ -570,7 +588,7 @@ class Parameter(object):
         if val is not None and self._eval is not None:
             self._eval.error = []
             self._eval.error_msg = None
-            self._initials_ast = self._eval.parse(val)
+            self._initials_ast = self._eval.parse(val)  # no evaluation here!
             check_ast_errors(self._eval)
             self._deps_initials = get_ast_names(self._initials_ast)
 
@@ -580,9 +598,10 @@ class Parameter(object):
                 self.__set_initials(self._initials)
             if self._eval is not None:
                 # if not self._delay_asteval:
-                fct = self._eval(self._initials_ast)
+                self._eval.eval('n={0:d}'.format(n))
+                initials = self._eval(self._initials_ast)
                 check_ast_errors(self._eval)
-                return fct(n)
+                return initials
             else:
                 raise IOError("Cannot evaluate 'initials' expression: '{0}'".format(self._initials))
         else:

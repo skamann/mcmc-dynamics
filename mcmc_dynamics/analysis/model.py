@@ -2,10 +2,12 @@
 import inspect
 import logging
 import numpy as np
+import importlib.resources as pkg_resources
 from astropy import units as u
 from astropy.table import Table
 from .runner import Runner
-
+from .. import config
+from ..parameter import Parameters
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +44,7 @@ class ModelFit(Runner):
     MODEL_PARAMETERS = ['v_sys', 'v_maxx', 'v_maxy', 'r_peak', 'sigma_max', 'a']
     OBSERVABLES = {'v': u.km/u.s, 'verr': u.km/u.s, 'r': u.arcsec, 'theta': u.rad}
 
-    def __init__(self, data, parameters, **kwargs):
+    def __init__(self, data, parameters=None, **kwargs):
         """
         Initialize a new instance of the ModelFit class.
 
@@ -52,7 +54,7 @@ class ModelFit(Runner):
             The observed data for a set of n stars. The instance must provide
             at least the radii, the position angles, the velocities, and their
             uncertainties.
-        parameters: instance of Parameters
+        parameters: instance of Parameters, optional
             The model parameters.
         kwargs :
             Any additional keyword arguments are passed on to the
@@ -61,6 +63,9 @@ class ModelFit(Runner):
         # required observables
         self.r = None
         self.theta = None
+
+        if parameters is None:
+            parameters = Parameters().load(pkg_resources.open_text(config, 'model.json'))
 
         super(ModelFit, self).__init__(data=data, parameters=parameters, **kwargs)
 

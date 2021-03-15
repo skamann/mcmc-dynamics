@@ -10,6 +10,7 @@ setup(
     license='',
     author='Sebastian Kamann',
     author_email='s.kamann@ljmu.ac.uk',
-    install_requires=['numpy', 'astropy', 'scipy', 'matplotlib', 'corner', 'emcee', 'tqdm', 'pandas', 'pathos'],
+    install_requires=['numpy', 'astropy', 'scipy', 'matplotlib', 'corner', 'emcee', 'tqdm', 'pandas', 'pathos',
+                      'asteval', 'lmfit'],
     description='Tools for maximum-likelihood analysis of radial velocity data'
 )
