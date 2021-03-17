@@ -14,6 +14,11 @@ from asteval import Interpreter, get_ast_names, valid_symbol_name
 logger = logging.getLogger(__name__)
 
 
+SCIPY_FUNCTIONS = {}
+for fnc_name in ("uniform", "norm", "lognorm"):
+    SCIPY_FUNCTIONS[fnc_name] = getattr(stats, fnc_name)
+
+
 def check_ast_errors(expr_eval):
     """Check for errors derived from asteval."""
     if len(expr_eval.error) > 0:
@@ -57,6 +62,7 @@ class Parameters(OrderedDict):
         self._asteval = Interpreter()
 
         _syms = {}
+        _syms.update(SCIPY_FUNCTIONS)
         if usersyms is not None:
             _syms.update(usersyms)
         for key, val in _syms.items():
@@ -281,7 +287,7 @@ class Parameters(OrderedDict):
 
         """
         if columns is None:
-            columns = ['value', 'min', 'max', 'fixed', 'initials', 'lnprior']
+            columns = ['value', 'unit', 'min', 'max', 'fixed', 'initials', 'lnprior']
 
         if oneline:
             print(self.pretty_repr(oneline=oneline))
@@ -293,11 +299,15 @@ class Parameters(OrderedDict):
         print(title.format(*allcols, name_len=name_len, n=colwidth).title())
         numstyle = '{%s:>{n}.{p}{f}}'  # format for numeric columns
         otherstyles = dict(name='{name:<{name_len}} ',  fixed='{fixed!s:>{n}}',
-                           initials='{initials!s:>{n}}', lnprior='{lnprior!s:>{n}}')
+                           initials='{initials!s:>{n}}', lnprior='{lnprior!s:>{n}}',
+                           unit='{unit!s:>{n}}')
         line = ' '.join([otherstyles.get(k, numstyle % k) for k in allcols])
         for name, values in sorted(self.items()):
             pvalues = {k: getattr(values, k) for k in columns}
             pvalues['name'] = name
+            # if 'unit' in columns and pvalues['unit'] is None:
+            #     pvalues['unit'] = ''
+
             # # stderr is a special case: it is either numeric or None (i.e. str)
             # if 'stderr' in columns and pvalues['stderr'] is not None:
             #     pvalues['stderr'] = (numstyle % '').format(
@@ -421,9 +431,15 @@ class Parameters(OrderedDict):
 
         """
         params = [p.__getstate__() for p in self.values()]
-        sym_unique = self._asteval.user_defined_symbols()
-        unique_symbols = {key: encode4js(deepcopy(self._asteval.symtable[key]))
-                          for key in sym_unique}
+
+        unique_symbols = {}
+        for key in self._asteval.user_defined_symbols():
+            try:
+                value =encode4js(deepcopy(self._asteval.symtable[key]))
+            except AttributeError:
+                logger.error("Cannot encode user-defined symbol '{0}' as JSON object".format(key))
+            else:
+                unique_symbols[key] = value
 
         random_state = unique_symbols['rng'].bit_generator.state
         del unique_symbols['rng']
@@ -648,9 +664,10 @@ class Parameter(object):
                 self.__set_lnprior(self._lnprior)
             if self._eval is not None:
                 # if not self._delay_asteval:
-                fct = self._eval(self._lnprior_ast)
+                self._eval.eval('val={0:f}'.format(val))
+                lnprior = self._eval(self._lnprior_ast)
                 check_ast_errors(self._eval)
-                return fct(val)
+                return lnprior
             else:
                 raise IOError("Cannot evaluate expression: '{0}'".format(self._lnprior))
         else:
@@ -674,6 +691,11 @@ class Parameter(object):
         else:
             _val = val
         self.value = _val
+
+        if not hasattr(self, '_eval'):
+            self._eval = None
+        if self._eval is not None:
+            self._eval.symtable[self.name] = self.value
 
     def _set_unit(self, unit):
 

@@ -85,20 +85,6 @@ class ModelFit(Runner):
         self.dispersion_parameters = inspect.signature(self.dispersion_model).parameters
 
     # @property
-    # def observables(self):
-    #     if self._observables is None:
-    #         self._observables = super(ModelFit, self).observables
-    #         self._observables.update({'r': u.arcsec, 'theta': u.rad})
-    #     return self._observables
-
-    # @property
-    # def parameters(self):
-    #     _parameters = super(ModelFit, self).parameters
-    #     _parameters.update({'v_sys': u.km / u.s, 'v_maxx': u.km / u.s, 'v_maxy': u.km / u.s,'r_peak': u.arcsec,
-    #                         'sigma_max': u.km / u.s, 'a': u.arcsec})
-    #     return _parameters
-
-    # @property
     # def parameter_labels(self):
     #     labels = {}
     #     for row in self.initials:
@@ -195,39 +181,6 @@ class ModelFit(Runner):
         x_pa = self.r * np.sin(self.theta - theta_0)
         return v_sys + 2. * (v_max / r_peak) * x_pa / (1. + (x_pa / r_peak) ** 2)
 
-    # def lnprior(self, values):
-    #     """
-    #     Check if the priors for the model parameters are fulfilled.
-    #
-    #     This method implements the priors needed for the MCMC estimation
-    #     of the uncertainties. Uninformative priors are used, i.e. the
-    #     likelihoods are constant across the accepted value range and zero
-    #     otherwise.
-    #
-    #     Parameters
-    #     ----------
-    #     values : array_like
-    #         The current values of the model parameters.
-    #
-    #     Returns
-    #     -------
-    #     loglike : float
-    #         The log likelihood of the model for the given parameters. As
-    #         uninformative priors are used, the log likelihood will be zero
-    #         for valid parameters and -inf otherwise.
-    #     """
-    #     # Split parameters
-    #     for parameter, value in self.fetch_parameter_values(values).items():
-    #         if parameter == 'sigma_max' and (value <= 0 or value > 100*u.km/u.s):
-    #             return -np.inf
-    #         elif parameter in ['v_maxx', 'v_maxy'] and abs(value) > 50*u.km/u.s:
-    #             return -np.inf
-    #         # elif parameter == 'theta_0' and (value < 0 or value > np.pi*u.rad):
-    #         #     return -np.inf
-    #         elif parameter in ['r_peak', 'a'] and not 0 < value <= 3.*u.arcmin:
-    #             return -np.inf
-    #     return 0
-
     def lnlike(self, values):
         """
         Calculate the log likelihood of the current model given the data.
@@ -269,35 +222,6 @@ class ModelFit(Runner):
 
         # calculate log-likelihood
         return self._calculate_lnlike(v_los=v_los, sigma_los=sigma_los)
-
-    # def get_initials(self, n_walkers):
-    #     """
-    #     Create initial values for the MCMC chains.
-    #
-    #     Parameters
-    #     ----------
-    #     n_walkers : int
-    #         The number of walkers for which initial guesses should be created.
-    #
-    #     Returns
-    #     -------
-    #     initials : ndarray
-    #         The initial guesses for the requested number of chains.
-    #     """
-    #     # define initial positions of the walkers in parameter space
-    #     initials = np.zeros((n_walkers, self.n_fitted_parameters))
-    #     i = 0
-    #     for row in self.initials:
-    #         if row['fixed']:
-    #             continue
-    #         # if row['name'] == 'theta_0':
-    #         #     initials[:, i] = np.pi * np.random.rand(n_walkers)
-    #         elif row['name'] in ['r_peak', 'a']:
-    #             initials[:, i] = row['init'] * np.random.lognormal(0.0, 0.2, n_walkers)
-    #         else:
-    #             initials[:, i] = row['init'] + np.random.randn(n_walkers)*row['init'].unit
-    #         i += 1
-    #     return initials
 
     def create_profiles(self, chains, n_burn, radii=None, filename=None):
         """
@@ -412,12 +336,6 @@ class ModelFitGB(ModelFit):
         super(ModelFitGB, self).__init__(data=data, parameters=parameters, **kwargs)
 
     # @property
-    # def observables(self):
-    #     _observables = super(ModelFitGB, self).observables
-    #     _observables['density'] = u.dimensionless_unscaled
-    #     return _observables
-
-    # @property
     # def parameter_labels(self):
     #
     #     labels = super(ModelFitGB, self).parameter_labels
@@ -430,14 +348,6 @@ class ModelFitGB(ModelFit):
     #         elif row['name'] == 'f_back':
     #             labels[row['name']] = r'$f_{\rm back}$'
     #     return labels
-
-    # def lnprior(self, values):
-    #     for parameter, value in self.fetch_parameter_values(values).items():
-    #         if parameter == 'f_back' and (value < 0 or value > 1):
-    #             return -np.inf
-    #         elif parameter == 'sigma_back' and (value <= 0 or value > 100 * u.km / u.s):
-    #             return -np.inf
-    #     return super(ModelFitGB, self).lnprior(values)
 
     def lnlike(self, values):
         """
@@ -503,20 +413,6 @@ class ModelFitGB(ModelFit):
 
         lnlike = max_lnlike + np.log(m*np.exp(lnlike_cluster - max_lnlike) + (1. - m)*np.exp(lnlike_back - max_lnlike))
         return lnlike.sum()
-
-    # def get_initials(self, n_walkers):
-    #
-    #     initials = super(ModelFitGB, self).get_initials(n_walkers)
-    #
-    #     i = 0
-    #     for row in self.initials:
-    #         if row['fixed']:
-    #             continue
-    #         if row['name'] == 'f_back':
-    #             initials[:, i] = 2.*row['init']*np.random.random_sample(n_walkers)
-    #         i += 1
-    #
-    #     return initials
 
     def calculate_membership_probabilities(self, chain, n_burn):
 

@@ -1,6 +1,7 @@
 import contextlib
 import logging
 import uuid
+import importlib.resources as pkg_resources
 import numpy as np
 import pandas as pd
 import cjam
@@ -8,8 +9,11 @@ from multiprocessing import Pool
 from scipy import stats
 from astropy import units as u
 from astropy.table import Table
+
 from ..runner import Runner
-from mcmc_dynamics.utils.files import MgeReader, get_mge, get_nearest_neigbhbour_idx2
+from ... import config
+from ...parameter import Parameters
+from ...utils.files import MgeReader, get_mge, get_nearest_neigbhbour_idx2
 
 
 logger = logging.getLogger(__name__)
@@ -100,7 +104,7 @@ class Axisymmetric(Runner):
                         'delta_x', 'delta_y', 'rbh', 'delta_v']
     OBSERVABLES = {'x': u.arcsec, 'y': u.arcsec, 'v': u.km/u.s, 'verr': u.km/u.s}
 
-    def __init__(self, data, parameters, mge_mass=None, mge_lum=None, mge_files=None, **kwargs):
+    def __init__(self, data, parameters=None, mge_mass=None, mge_lum=None, mge_files=None, **kwargs):
         """
         Initialize a new instance of the Axisymmetric class.
 
@@ -108,7 +112,7 @@ class Axisymmetric(Runner):
         ----------
         data : instance of DataReader
             The measured positions and velocities of the trace population.
-        parameters : instance of Parameters
+        parameters : instance of Parameters, optional
             The model parameters.
         mge_mass : instance of MgeReader, optional
             The Multi-Gaussian expansion (MGE) model of the projected mass
@@ -118,12 +122,14 @@ class Axisymmetric(Runner):
             The Multi-Gaussian expansion (MGE) model of the projected
             luminosity density of the tracer population.
         mge_files : str, optional
-            A file containing the MGE models for different centres of the
-            system in ECSV-format.
+            A file containing the MGE models for different assumed centres of
+            the system in ECSV-format.
         kwargs
             Any additional keyword arguments are passed to the initialization
             of the parent Runner class.
         """
+        if parameters is None:
+            parameters = Parameters().load(pkg_resources.open_text(config, 'axisymmetric.json'))
 
         # required observables
         self.x = None
@@ -167,6 +173,11 @@ class Axisymmetric(Runner):
         else:
             self.median_q = np.median(self.mge_lum.data['q'])
 
+        # make sure prior on barq is correct
+        if self.parameters['barq'].max > self.median_q:
+            logger.warning("Setting upper limit for parameter 'barq' to {0}.".format(self.median_q))
+            self.parameters['barq'].set(max=self.median_q)
+
 #     @property
 #     def parameter_labels(self):
 #         labels = {}
@@ -195,20 +206,6 @@ class Axisymmetric(Runner):
     #     current_parameters = self.fetch_parameter_values(values)
     #
     #     for parameter, value in current_parameters.items():
-    #         if parameter == 'd' and value <= 0.5*u.kpc:
-    #             return -np.inf
-    #         elif parameter == 'mlr' and (np.less_equal(value, 0.1).any() or np.greater(value, 10).any()):
-    #             return -np.inf
-    #         elif parameter == 'barq' and (value <= 0.2 or value > self.median_q):
-    #             return -np.inf
-    #         elif parameter == 'kappa_x' or parameter =='kappa_y':
-    #             p += stats.norm.logpdf(value, 0, 5)
-    #         elif parameter == 'delta_x' or parameter == 'delta_y':
-    #             p += stats.norm.logpdf(value, 0, 1)
-    #         elif parameter == 'delta_v':
-    #             p += stats.norm.logpdf(value, 0, 1)
-    #         elif parameter == 'mbh':
-    #             p += stats.uniform.logpdf(value, 0, 15000)
     #
     #     return p + super(Axisymmetric, self).lnprior(values=values)
 

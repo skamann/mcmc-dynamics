@@ -1,76 +1,89 @@
+import importlib.resources as pkg_resources
 import numpy as np
 from scipy import stats
 from astropy import units as u
+
 from .axisymmetric import Axisymmetric
-from mcmc_dynamics.utils.files import get_nearest_neigbhbour_idx2, get_mge
+from ... import config
+from ...utils.files import get_nearest_neigbhbour_idx2, get_mge
+from ...parameter import Parameters
 
 
 class RadialProfiles(Axisymmetric):
+    """
+    This class implements axisymmetric Jeans models with radially varying
+    mass-to-light ratio and rotation parameter kappa.
 
-    def __init__(self, data, mge_mass, mge_lum, initials, **kwargs):
+    The radial variation is achieved by assigning different mass-to-light
+    ratios and kappa parameters to different components of the MGE profile.
+    The values of MGE components for which either the mass-to-light ratio
+    and/or kappa are obtained via linear interpolation.
 
-        super(RadialProfiles, self).__init__(data=data, mge_mass=mge_mass, mge_lum=mge_lum, initials=initials, **kwargs)
+    In any case, the mass-to-light ratio (`mlr_1`) and the kappa parameter
+    (`kappa_1`) of the first MGE component must be specified. For all other
+    components, specifying `mlr_{n}` and `kappa_{n}` is optional.
+    """
+    MODEL_PARAMETERS = ['d', 'mlr_1', 'barq', 'kappa_x', 'kappa_y', 'beta', 'mbh',
+                        'delta_x', 'delta_y', 'rbh', 'delta_v']
 
-    @property
-    def parameters(self):
-        if self._parameters is None:
-            self._parameters = super(Axisymmetric, self).parameters
-            _ = self._parameters.pop('mlr')
-            _ = self._parameters.pop('kappa')
-            self._parameters.update({'mlr1': u.dimensionless_unscaled, 'mlr3': u.dimensionless_unscaled,
-                                     'mlr4': u.dimensionless_unscaled, 'mlr7': u.dimensionless_unscaled,
-                                     'kappa3': u.dimensionless_unscaled})
-        return self._parameters
+    def __init__(self, data, mge_mass, mge_lum, parameters=None, **kwargs):
 
-    @property
-    def parameter_labels(self):
-        labels = {}
-        for row in self.initials:
-            name = row['name']
-            latex_string = row['init'].unit.to_string('latex')
-            if name == 'd':
-                labels[name] = r'$d/${0}'.format(latex_string)
-            elif len(name) > 3 and name[:3] == 'mlr':
-                index = int(name[3:])
-                labels[name] = r'$\Upsilon_{0}/\frac{{\rm M_\odot}}{{\rm L_\odot}}$'.format(index)
-            elif row['name'] == 'barq':
-                labels[row['name']] = r'$\bar{q}$'
-            elif len(name) > 5 and name[:5] == 'kappa':
-                index = int(name[5:])
-                labels[row['name']] = r'$\kappa_{0}$'.format(index)
-            elif row['name'] == 'beta':
-                labels[row['name']] = r'$\beta$'
-            elif row['name'] == 'mbh':
-                labels[row['name']] = r'$M_{\rm BH}$'
-            elif row['name'] == 'delta_x':
-                labels[row['name']] = r'$\Delta x$'
-            elif row['name'] == 'delta_y':
-                labels[row['name']] = r'$\Delta y$'
+        if parameters is None:
+            parameters = Parameters().load(pkg_resources.open_text(config, 'radial_profiles.json'))
 
-            else:
-                labels[row['name']] = r'${0}/${1}'.format(row['name'], latex_string)
-        return labels
+        super(RadialProfiles, self).__init__(data=data, mge_mass=mge_mass, mge_lum=mge_lum, parameters=parameters,
+                                             **kwargs)
+
+    # @property
+    # def parameter_labels(self):
+    #     labels = {}
+    #     for row in self.initials:
+    #         name = row['name']
+    #         latex_string = row['init'].unit.to_string('latex')
+    #         if name == 'd':
+    #             labels[name] = r'$d/${0}'.format(latex_string)
+    #         elif len(name) > 3 and name[:3] == 'mlr':
+    #             index = int(name[3:])
+    #             labels[name] = r'$\Upsilon_{0}/\frac{{\rm M_\odot}}{{\rm L_\odot}}$'.format(index)
+    #         elif row['name'] == 'barq':
+    #             labels[row['name']] = r'$\bar{q}$'
+    #         elif len(name) > 5 and name[:5] == 'kappa':
+    #             index = int(name[5:])
+    #             labels[row['name']] = r'$\kappa_{0}$'.format(index)
+    #         elif row['name'] == 'beta':
+    #             labels[row['name']] = r'$\beta$'
+    #         elif row['name'] == 'mbh':
+    #             labels[row['name']] = r'$M_{\rm BH}$'
+    #         elif row['name'] == 'delta_x':
+    #             labels[row['name']] = r'$\Delta x$'
+    #         elif row['name'] == 'delta_y':
+    #             labels[row['name']] = r'$\Delta y$'
+    #
+    #         else:
+    #             labels[row['name']] = r'${0}/${1}'.format(row['name'], latex_string)
+    #     return labels
 
     def fetch_parameter_values(self, values):
 
         parameters = super(RadialProfiles, self).fetch_parameter_values(values)
 
         # collect all kappa and mlr values in arrays
-        mlr = np.zeros((self.mge_mass.n_components, ), dtype=np.float64)*self.parameters['mlr1']
-        kappa = np.zeros((self.mge_lum.n_components, ), dtype=np.float64)*self.parameters['kappa3']
+        mlr = np.zeros((self.mge_mass.n_components, ), dtype=np.float64)*self.parameters['mlr_1']
+        kappa = np.zeros((self.mge_lum.n_components, ), dtype=np.float64)*self.parameters['kappa_1']
 
         defined_mlr = np.zeros((self.mge_mass.n_components, ), dtype=np.bool)
         defined_kappa = np.zeros((self.mge_lum.n_components, ), dtype=np.bool)
 
-        for i in range(self.mge_lum.n_components):
-            if 'mlr{0}'.format(i + 1) in parameters.keys():
-                mlr[i] = parameters.pop('mlr{0}'.format(i + 1))
+        for i in range(self.mge_mass.n_components):
+            if 'mlr_{0}'.format(i + 1) in parameters.keys():
+                mlr[i] = parameters.pop('mlr_{0}'.format(i + 1))
                 defined_mlr[i] = True
-            if 'kappa{0}'.format(i + 1) in parameters.keys():
-                kappa[i] = parameters.pop('kappa{0}'.format(i + 1))
+        for i in range(self.mge_lum.n_components):
+            if 'kappa_{0}'.format(i + 1) in parameters.keys():
+                kappa[i] = parameters.pop('kappa_{0}'.format(i + 1))
                 defined_kappa[i] = True
 
-        # interpolate missing values
+        # interpolate missing values linearly in log(r) space
         mlr[~defined_mlr] = np.interp(np.log10(self.mge_mass.data['s'][~defined_mlr].value),
                                       np.log10(self.mge_mass.data['s'][defined_mlr].value),
                                       mlr[defined_mlr])*mlr.unit
@@ -84,29 +97,90 @@ class RadialProfiles(Axisymmetric):
         return parameters
 
     def lnprior(self, values):
+        """
+        Evaluate prior, make sure that no MGE component has negative
+        mass-to-light ratio.
 
-        for parameter, value in self.fetch_parameter_values(values).items():
-            if parameter == 'd' and value <= 0.5*u.kpc:
-                return -np.inf
-            elif parameter == 'mlr' and (value <= 0.1).any():
-                return -np.inf
-            elif parameter == 'barq' and (value <= 0.2 or value > self.median_q):
-                return -np.inf
-            if parameter == 'kappa' and (abs(value) > 10).any():
-                return -np.inf
+        Parameters
+        ----------
+        values : array_like
+            The set of parameter values for which to evaluate the prior.
+
+        Returns
+        -------
+        lnprior : float
+           The prior of the model for the given set of parameter values.
+        """
+        mlr_values = self.fetch_parameter_values(values)['mlr']
+        if (mlr_values <= 0.1).any():
+            return -np.inf
         return super(RadialProfiles, self).lnprior(values=values)
 
 
 class AnalyticalProfiles(Axisymmetric):
+    """
+    This class implements axisymmetric Jeans models with radially varying
+    mass-to-light ratio and rotation parameter kappa.
 
-    def __init__(self, data, mge_mass, mge_lum, initials, mge_coords=None, mge_files=None, **kwargs):
+    The radial variation is achieved by defining analytical functions for the
+    mass-to-light ratio and the kappa-parameter.
 
-        super(AnalyticalProfiles, self).__init__(data=data, mge_mass=mge_mass, mge_lum=mge_lum, 
-                                                 mge_coords=mge_coords, mge_files=mge_files, initials=initials,
-                                                 **kwargs)
+    For the mass-to-light ratio, the following formula is used:
+
+    mlr(r) = (mlr_0*(1.-R) + 2.*mlr_t*R + mlr_inf*R*(R-1.)) / (1.+R**2),
+
+    with R = r/r_mlr. The parameters `r_mlr`, `mlr_0`, `mlr_t`, and `mlr_inf`
+    are the model parameters that can be optimized during the analysis.
+
+    For kappa, the following formula is used:
+
+    kappa(r) = 2.* kappa_max * (r/r_kappa) / (1. + (r/r_kappa)**2).
+
+    In order to be able to fit the position angle theta of the rotation,
+    kappa_max is parametrized as kappa_max = SQRT(kappa_x**2 + kappa_y**2),
+    with theta = ARCTAN(kappa_x/kappa_x). The parameters `kappa_x`, `kappa_y`,
+    and `r_kappa` are the model parameters that can be optimized during the
+    analysis.
+    """
+    MODEL_PARAMETERS = ['d', 'mlr_0', 'mlr_t', 'mlr_inf', 'r_mlr', 'barq', 'kappa_x', 'kappa_y', 'r_kappa',
+                        'beta', 'mbh', 'delta_x', 'delta_y', 'rbh', 'delta_v']
+
+    def __init__(self, data, mge_mass, mge_lum, parameters=None, mge_files=None, **kwargs):
+        """
+        Initialize a new instance of the AnalyticalProfiles class.
+
+        Parameters
+        ----------
+        data
+        mge_mass
+        mge_lum
+        parameters
+        mge_files
+        kwargs
+        """
+        if parameters is None:
+            parameters = Parameters().load(pkg_resources.open_text(config, 'analytical_profiles.json'))
+
+        super(AnalyticalProfiles, self).__init__(data=data, mge_mass=mge_mass, mge_lum=mge_lum,
+                                                 mge_files=mge_files, parameters=parameters, **kwargs)
         
     @staticmethod
     def calculate_x_values(single_mge):
+        """
+        For a given MGE, the code determines the radii at which each MGE
+        component contributes maximally to the combined profile.
+
+        Parameters
+        ----------
+        single_mge : instance of MgeReader
+            The MGE profile for which the radii should be determined.
+
+        Returns
+        -------
+        xn : array_like
+            The radii where the contribution of each MGE component to the full
+            profile is maximized.
+        """
         x = np.logspace(u.Dex(single_mge.data['s']).min().value,
                         u.Dex(single_mge.data['s']).max().value,
                         100)*single_mge.data['s'].unit
@@ -121,53 +195,41 @@ class AnalyticalProfiles(Axisymmetric):
         xn[single_mge.data['s'].argmax()] *= 10
         
         return xn
-        
 
-    @property
-    def parameters(self):
-        if self._parameters is None:
-            self._parameters = super(AnalyticalProfiles, self).parameters
-            _ = self._parameters.pop('mlr')
-            self._parameters.update({'mlr_0': u.dimensionless_unscaled, 'mlr_t': u.dimensionless_unscaled,
-                                     'mlr_inf': u.dimensionless_unscaled, 'r_mlr': u.arcsec,
-                                     'kappa_x': u.dimensionless_unscaled, 'kappa_y': u.dimensionless_unscaled,
-                                     'r_kappa': u.arcsec})
-        return self._parameters
-
-    @property
-    def parameter_labels(self):
-        labels = {}
-        for row in self.initials:
-            name = row['name']
-            latex_string = row['init'].unit.to_string('latex')
-            if name == 'd':
-                labels[name] = r'$d/${0}'.format(latex_string)
-            elif len(name) > 3 and name[:3] == 'mlr':
-                suffix = name[4:]
-                if suffix == 'inf':
-                    suffix = r'\infty'
-                labels[name] = r'$\Upsilon_{{\rm {0}}}/{{\rm M_\odot}}\,{{\rm L_\odot^{{-1}}}}$'.format(suffix)
-            elif name == 'barq':
-                labels[name] = r'$\bar{q}$'
-            elif name == 'kappa_x':
-                labels[name] = r'$\kappa_{\rm x}$'
-            elif name == 'kappa_y':
-                labels[name] = r'$\kappa_{\rm y}$'
-            elif name == 'beta':
-                labels[name] = r'$\beta$'
-            elif name == 'r_kappa':
-                labels[name] = r'$r_{{\rm \kappa}}$/{0}'.format(latex_string)
-            elif name == 'r_mlr':
-                labels[name] = r'$r_{{\rm \Upsilon}}$/{0}'.format(latex_string)
-            elif row['name'] == 'delta_x':
-                labels[row['name']] = r'$\Delta x$'
-            elif row['name'] == 'delta_y':
-                labels[row['name']] = r'$\Delta y$'
-            elif row['name'] == 'mbh':
-                labels[row['name']] = r'$M_{\rm BH}$'                
-            else:
-                labels[row['name']] = r'${0}/${1}'.format(row['name'], latex_string)
-        return labels
+    # @property
+    # def parameter_labels(self):
+    #     labels = {}
+    #     for row in self.initials:
+    #         name = row['name']
+    #         latex_string = row['init'].unit.to_string('latex')
+    #         if name == 'd':
+    #             labels[name] = r'$d/${0}'.format(latex_string)
+    #         elif len(name) > 3 and name[:3] == 'mlr':
+    #             suffix = name[4:]
+    #             if suffix == 'inf':
+    #                 suffix = r'\infty'
+    #             labels[name] = r'$\Upsilon_{{\rm {0}}}/{{\rm M_\odot}}\,{{\rm L_\odot^{{-1}}}}$'.format(suffix)
+    #         elif name == 'barq':
+    #             labels[name] = r'$\bar{q}$'
+    #         elif name == 'kappa_x':
+    #             labels[name] = r'$\kappa_{\rm x}$'
+    #         elif name == 'kappa_y':
+    #             labels[name] = r'$\kappa_{\rm y}$'
+    #         elif name == 'beta':
+    #             labels[name] = r'$\beta$'
+    #         elif name == 'r_kappa':
+    #             labels[name] = r'$r_{{\rm \kappa}}$/{0}'.format(latex_string)
+    #         elif name == 'r_mlr':
+    #             labels[name] = r'$r_{{\rm \Upsilon}}$/{0}'.format(latex_string)
+    #         elif row['name'] == 'delta_x':
+    #             labels[row['name']] = r'$\Delta x$'
+    #         elif row['name'] == 'delta_y':
+    #             labels[row['name']] = r'$\Delta y$'
+    #         elif row['name'] == 'mbh':
+    #             labels[row['name']] = r'$M_{\rm BH}$'
+    #         else:
+    #             labels[row['name']] = r'${0}/${1}'.format(row['name'], latex_string)
+    #     return labels
 
     def fetch_parameter_values(self, values, return_rkappa=False, return_mge=False):
 
@@ -195,7 +257,7 @@ class AnalyticalProfiles(Axisymmetric):
         rkappa = parameters.pop('r_kappa')
         _x = (_x_kappa / rkappa).si
         kappa_max = np.sqrt(parameters['kappa_x']**2 + parameters['kappa_y']**2)
-        parameters['kappa'] = 2.* kappa_max *_x / (1. + _x**2)
+        parameters['kappa'] = 2. * kappa_max * _x / (1. + _x**2)
         
         if return_rkappa:
             return parameters, rkappa
@@ -205,48 +267,23 @@ class AnalyticalProfiles(Axisymmetric):
         
         return parameters
 
-    def lnprior(self, values):
-        p = 0
-        
-        # some priors depend on the current MGE profile, so we need to get it
-        # (since it is not saved as self.xyz)
-        if self.use_mge_grid:
-            _, mge_lum, mge_mass = self.fetch_parameter_values(values, return_mge=True)
-        else:
-            mge_lum, mge_mass = self.mge_lum, self.mge_mass
-        
-        # add additional checks for parameters of radial profiles
-        for parameter, value in dict(zip(self.fitted_parameters, values)).items():
-
-            # recover unit
-            i = [init['name'] for init in self.initials].index(parameter)
-            try:
-                v = u.Quantity(value, unit=self.initials[i]['init'].unit)
-            except u.core.UnitTypeError:
-                v = u.Dex(value, unit=self.initials[i]['init'].unit)
-
-            if parameter in ['mlr_0', 'mlr_t'] and (v.value <= 0.1 or v.value > 100):
-                return -np.inf
-
-            elif parameter == 'mlr_inf':     
-                my_mean = 3.5
-                my_std = 1.0
-
-                if value < 0: 
-                    return -np.inf
-                else:
-                    p0 = stats.norm.logpdf(value, loc=my_mean, scale=my_std)
-                    p = p0 + p
-
-            elif parameter == 'r_mlr' and not (mge_mass.data['s'].min() < v < mge_mass.data['s'].max()):
-                print(parameter, value, mge_mass.data['s'].min(), mge_mass.data['s'].max())
-                return -np.inf
-
-            elif parameter == 'r_kappa' and not (mge_lum.data['s'].min() < v < mge_lum.data['s'].max()):
-                print(parameter, value, mge_lum.data['s'].min(), mge_lum.data['s'].max())
-                return -np.inf
-
-        pradial = p 
-        paxis = super(AnalyticalProfiles, self).lnprior(values=values)
-        
-        return pradial + paxis
+    # def lnprior(self, values):
+    #     # some priors depend on the current MGE profile, so we need to get it
+    #     # (since it is not saved as self.xyz)
+    #     if self.use_mge_grid:
+    #         _, mge_lum, mge_mass = self.fetch_parameter_values(values, return_mge=True)
+    #     else:
+    #         mge_lum, mge_mass = self.mge_lum, self.mge_mass
+    #
+    #     # add additional checks for parameters of radial profiles
+    #     r_mlr = u.Quantity(self.parameters['r_mlr'].value, unit=self.parameters['r_mlr'].unit)
+    #     if not (mge_mass.data['s'].min() < r_mlr < mge_mass.data['s'].max()):
+    #         print('r_mlr', r_mlr, mge_mass.data['s'].min(), mge_mass.data['s'].max())
+    #         return -np.inf
+    #
+    #     r_kappa = u.Quantity(self.parameters['r_kappa'].value, unit=self.parameters['r_kappa'].unit)
+    #     if not (mge_lum.data['s'].min() < r_kappa < mge_lum.data['s'].max()):
+    #         print('r_kappa', r_kappa, mge_lum.data['s'].min(), mge_lum.data['s'].max())
+    #         return -np.inf
+    #
+    #     return super(AnalyticalProfiles, self).lnprior(values=values)

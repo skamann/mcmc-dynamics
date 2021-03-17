@@ -1,16 +1,15 @@
-from setuptools import setup
+from setuptools import find_packages, setup
 
 setup(
     name='mcmc-dynamics',
     version='0.2',
-    packages=['example', 'mcmc_dynamics', 'mcmc_dynamics.utils', 'mcmc_dynamics.utils.files',
-              'mcmc_dynamics.utils.plots', 'mcmc_dynamics.utils.science', 'mcmc_dynamics.utils.coordinates',
-              'mcmc_dynamics.analysis', 'mcmc_dynamics.analysis.cjam', 'mcmc_dynamics.background'],
+    packages=find_packages("./"),
+    package_data={"": ["*.json"]},
     url='',
     license='',
     author='Sebastian Kamann',
     author_email='s.kamann@ljmu.ac.uk',
-    install_requires=['numpy', 'astropy', 'scipy', 'matplotlib', 'corner', 'emcee', 'tqdm', 'pandas', 'pathos',
+    install_requires=['numpy>=1.17', 'astropy', 'scipy', 'matplotlib', 'corner', 'emcee', 'tqdm', 'pandas', 'pathos',
                       'asteval', 'lmfit'],
     description='Tools for maximum-likelihood analysis of radial velocity data'
 )

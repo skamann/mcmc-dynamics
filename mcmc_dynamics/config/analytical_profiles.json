@@ -1,0 +1,22 @@
+{
+  "unique_symbols": {
+    "rng_seed": null
+  },
+  "params": [
+    ["d", null, "kpc", false, 0.0, Infinity, "rng.lognormal(size=n)", null, null],
+    ["mlr_0", null, null, false, 0.0, Infinity, "rng.lognormal(size=n)", null, null],
+    ["mlr_t", null, null, false, 0.0, Infinity, "rng.lognormal(size=n)", null, null],
+    ["mlr_inf", null, null, false, 0.0, Infinity, "rng.lognormal(size=n)", null, null],
+    ["r_mlr", null, "arcsec", false, 0.0, Infinity, "rng.lognormal(size=n)", null, null],
+    ["barq", null, null, false, 0.0, 1.0, "rng.random(size=n)", null, null],
+    ["kappa_x", null, null, false, -Infinity, Infinity, "rng.normal(size=n)", null, null],
+    ["kappa_y", null, null, false, -Infinity, Infinity, "rng.normal(size=n)", null, null],
+    ["r_kappa", null, "arcsec", false, 0.0, Infinity, "rng.lognormal(size=n)", null, null],
+    ["beta", null, null, false, -Infinity, 1.0, "rng.uniform(-0.5, 0.5, size=n)", null, null],
+    ["mbh", null, "solMass", false, 0.0, Infinity, "rng.lognormal(size=n)", null, null],
+    ["delta_x", null, "arcsec", false, -Infinity, Infinity, "rng.normal(size=n)", null, null],
+    ["delta_y", null, "arcsec", false, -Infinity, Infinity, "rng.normal(size=n)", null, null],
+    ["rbh", null, "arcsec", false, 0.0, Infinity, "rng.lognormal(size=n)", null, null],
+    ["delta_v", null, "km/s", false, -Infinity, Infinity, "rng.normal(size=n)", null, null]
+  ]
+}

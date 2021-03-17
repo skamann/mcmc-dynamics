@@ -191,8 +191,11 @@ class Runner(object):
         """
         lnlike = 0
         for name, value in self.fetch_parameter_values(values).items():
+            if name not in self.parameters.keys():  # TODO
+                continue
             lnlike += self.parameters[name].evaluate_lnprior(value)
             if not np.isfinite(lnlike):
+                print(name, value)
                 return -np.inf
         return lnlike
 
