@@ -113,6 +113,7 @@ class Parameters(OrderedDict):
                 param.fixed = par.fixed
                 param.initials = par.initials
                 param.lnprior = par.lnprior
+                param.label = par._label
                 param.user_data = par.user_data
                 parameter_list.append(param)
 
@@ -319,8 +320,8 @@ class Parameters(OrderedDict):
         """Returns a HTML representation of parameters data."""
         return params_html_table(self)
 
-    def add(self, name, value=None, unit=None, fixed=False, min=-np.inf, max=np.inf, initials=None,
-            lnprior=None):
+    def add(self, name, value=None, unit=None, fixed=False, min=-np.inf, max=np.inf,
+            label=None, initials=None, lnprior=None):
         """Add a Parameter.
 
         Parameters
@@ -338,6 +339,8 @@ class Parameters(OrderedDict):
             Lower bound for value (default is `-numpy.inf`, no lower bound).
         max : float, optional
             Upper bound for value (default is `numpy.inf`, no upper bound).
+        label : str, optional
+            String used for plot labels, etc.
         initials : str, optional
             Mathematical expression used to obtain initial values for a MCMC
             run.
@@ -362,7 +365,7 @@ class Parameters(OrderedDict):
             self.__setitem__(name.name, name)
         else:
             self.__setitem__(name, Parameter(value=value, unit=unit, name=name,
-                                             fixed=fixed, min=min, max=max,
+                                             fixed=fixed, min=min, max=max, label=label,
                                              initials=initials, lnprior=lnprior))
 
     def add_many(self, *parlist):
@@ -379,10 +382,10 @@ class Parameters(OrderedDict):
         Examples
         --------
         >>>  params = Parameters()
-        # add with tuples: (NAME VALUE VARY MIN  MAX  EXPR  BRUTE_STEP)
-        >>> params.add_many(('amp', 10, True, None, None, None, None),
-        ...                 ('cen', 4, True, 0.0, None, None, None),
-        ...                 ('wid', 1, False, None, None, None, None),
+        # add with tuples: (NAME VALUE UNIT FIXED MIN MAX INITIALS LNPRIOR LABEL)
+        >>> params.add_many(('amp', 10, 'km/s', True, None, None, None, None, None),
+        ...                 ('cen', 4, None, True, 0.0, None, None, None, None),
+        ...                 ('wid', 1, None, False, None, None, None, None, None),
         ...                 ('frac', 0.5))
         # add a sequence of Parameters
         >>> f = Parameter('par_f', 100)
@@ -536,7 +539,7 @@ class Parameters(OrderedDict):
 class Parameter(object):
 
     def __init__(self, name, value=None, unit=None, fixed=False, min=-np.inf, max=np.inf,
-                 initials=None, lnprior=None, user_data=None):
+                 label=None, initials=None, lnprior=None, user_data=None):
 
         super(Parameter, self).__init__()
 
@@ -547,6 +550,7 @@ class Parameter(object):
         self.user_data = user_data
         self._lnprior = lnprior
         self._initials = initials
+        self._label = label
         self._eval = None
         self._initials_ast = None
         self._lnprior_ast = None
@@ -562,7 +566,7 @@ class Parameter(object):
 
         self._init_bounds()
 
-    def set(self, value=None, unit=None, fixed=None, min=None, max=None, initials=None, lnprior=None):
+    def set(self, value=None, unit=None, fixed=None, min=None, max=None, label=None, initials=None, lnprior=None):
 
         if unit is not None:
             self._set_unit(unit)
@@ -586,6 +590,9 @@ class Parameter(object):
 
         if lnprior is not None:
             self.__set_lnprior(lnprior)
+
+        if label is not None:
+            self._label = label
 
     @property
     def initials(self):
@@ -743,6 +750,22 @@ class Parameter(object):
         if self.value < self.min:
             self.value = self.min
 
+    @property
+    def label(self, format='latex_inline'):
+
+        if self._label is not None:
+            label_str = self._label
+        else:
+            label_str = r"${{\rm {0}}}$".format(self.name)
+        if self.unit is not None:
+            label_str += "/"
+            label_str += self.unit.to_string(format)
+        return label_str
+
+    @label.setter
+    def label(self, val):
+        self._label = val
+
     def __repr__(self):
         """Return printable representation of a Parameter object."""
         s = []
@@ -763,13 +786,13 @@ class Parameter(object):
 
     def __getstate__(self):
         """Get state for pickle."""
-        return (self.name, self.value, self.unit, self.fixed, self.min,
-                self.max, self.initials, self.lnprior, self.user_data)
+        return (self.name, self.value, self.unit, self.fixed, self.min, self.max,
+                self._label, self.initials, self.lnprior, self.user_data)
 
     def __setstate__(self, state):
         """Set state for pickle."""
         (self.name, _value, _unit, self.fixed, self.min, self.max,
-         self._initials, self._lnprior, self.user_data) = state
+         self._label, self._initials, self._lnprior, self.user_data) = state
         self._initials_ast = None
         self._lnprior_ast = None
         self._eval = None

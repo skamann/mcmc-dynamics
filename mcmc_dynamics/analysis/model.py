@@ -69,43 +69,9 @@ class ModelFit(Runner):
 
         super(ModelFit, self).__init__(data=data, parameters=parameters, **kwargs)
 
-        # # get required columns - if units were provided, make sure they are as we expect
-        # self.r = u.Quantity(self.data.data['r'])
-        # if self.r.unit.is_unity():
-        #     self.r *= u.arcsec
-        #     logger.warning('Missing unit for <r> values. Assuming {0}.'.format(self.r.unit))
-        #
-        # self.theta = u.Quantity(data.data['theta'])
-        # if self.theta.unit.is_unity():
-        #     self.theta *= u.rad
-        #     logging.warning('Missing unit for <theta> values, assuming {0}.'.format(self.theta.unit))
-
         # get parameters required to evaluate rotation and dispersion models
         self.rotation_parameters = inspect.signature(self.rotation_model).parameters
         self.dispersion_parameters = inspect.signature(self.dispersion_model).parameters
-
-    # @property
-    # def parameter_labels(self):
-    #     labels = {}
-    #     for row in self.initials:
-    #         latex_string = row['init'].unit.to_string('latex')
-    #         if row['name'] == 'v_sys':
-    #             labels[row['name']] = r'$v_{{\rm sys}}/${0}'.format(latex_string)
-    #         elif row['name'] == 'v_maxx':
-    #             labels[row['name']] = r'$v_{{\rm max,\,x}}/${0}'.format(latex_string)
-    #         elif row['name'] == 'v_maxy':
-    #             labels[row['name']] = r'$v_{{\rm max,\,y}}/${0}'.format(latex_string)
-    #         elif row['name'] == 'r_peak':
-    #             labels[row['name']] = r'$r_{{\rm peak}}/${0}'.format(latex_string)
-    #         # elif row['name'] == 'theta_0':
-    #         #     labels[row['name']] = r'$\theta_{{\rm 0}}/${0}'.format(latex_string)
-    #         elif row['name'] == 'sigma_max':
-    #             labels[row['name']] = r'$\sigma_{{\rm 0}}/${0}'.format(latex_string)
-    #         elif row['name'] == 'a':
-    #             labels[row['name']] = r'$a/${0}'.format(latex_string)
-    #         else:
-    #             labels[row['name']] = r'${0}/${1}'.format(row['name'], latex_string)
-    #     return labels
 
     def dispersion_model(self, sigma_max, a=1, **kwargs):
         """
@@ -302,11 +268,21 @@ class ModelFitGB(ModelFit):
     """
     A child class of ModelFit that includes a background component
     approximated by a Gaussian in radial velocity space.
+
+    Compared to the parent ModelFit class, this class uses three additional
+    parameters. `v_back` and `sigma_back` are the shape parameters of the
+    Gaussian used to describe the distribution of background velocities.
+    `f_back` measures the fractional contribution of background sources to
+    the observed source density.
+
+    As an additional observable, `density` must be provided, indicating the
+    2dim. source density of the target distribution at the position of each
+    velocity measurement, relative to a central value.
     """
     MODEL_PARAMETERS = ['v_back', 'sigma_back', 'f_back', 'v_sys', 'v_maxx', 'v_maxy', 'r_peak', 'sigma_max', 'a']
     OBSERVABLES = {'v': u.km/u.s, 'verr': u.km/u.s, 'r': u.arcsec, 'theta': u.rad, 'density': u.dimensionless_unscaled}
 
-    def __init__(self, data, parameters, **kwargs):
+    def __init__(self, data, parameters=None, **kwargs):
         """
         Initialize a new instance of the ConstantFitGB class.
 
@@ -318,7 +294,7 @@ class ModelFitGB(ModelFit):
             ConstantFit class, the data also need to include a column named
             'density', containing the normalized stellar surface density at
             the location of each star.
-        parameters : instance of Parameters
+        parameters : instance of Parameters, optional
             The model parameters
         kwargs
             Any additional keyword arguments are passed to the initialization
@@ -332,22 +308,11 @@ class ModelFitGB(ModelFit):
         if background is not None:
             logger.error('Class ConstantFitGB does not support additional background components.')
 
+        if parameters is None:
+            parameters = Parameters().load(pkg_resources.open_text(config, 'model_with_background.json'))
+
         # call parent class initialisation.
         super(ModelFitGB, self).__init__(data=data, parameters=parameters, **kwargs)
-
-    # @property
-    # def parameter_labels(self):
-    #
-    #     labels = super(ModelFitGB, self).parameter_labels
-    #     for row in self.initials:
-    #         latex_string = row['init'].unit.to_string('latex')
-    #         if row['name'] == 'v_back':
-    #             labels[row['name']] = r'$v_{{\rm back}}/${0}'.format(latex_string)
-    #         elif row['name'] == 'sigma_back':
-    #             labels[row['name']] = r'$\sigma_{{\rm back}}/${0}'.format(latex_string)
-    #         elif row['name'] == 'f_back':
-    #             labels[row['name']] = r'$f_{\rm back}$'
-    #     return labels
 
     def lnlike(self, values):
         """

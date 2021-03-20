@@ -30,7 +30,25 @@ def printoptions(*args, **kwargs):
 
 
 def init_cjam(x, y, mge_mass, mge_lum, *args):
+    """
+    Initializer for running a CJAM model.
 
+    This function declares global variables containing the observables used by
+    the CJAM code.
+
+    Parameters
+    ----------
+    x : astropy Quantity
+        The x-coordinates of the velocity data, relative to the cluster centre.
+    y : astropy Quantity
+        The x-coordinates of the velocity data, relative to the cluster centre.
+    mge_mass : astropy QTAble
+        The MGE profile used to describe the mass density.
+    mge_lum : astropy QTable
+        The MGE profile used to describe the tracer density.
+    args
+        This function does not use any additional arguments.
+    """
     global gx
     global gy
     global gmge_mass
@@ -43,7 +61,37 @@ def init_cjam(x, y, mge_mass, mge_lum, *args):
 
 
 def run_cjam(parameters):
+    """
+    Helper function for running a single CJAM model for a given set of
+    parameters.
 
+    Parameters
+    ----------
+    parameters : dict
+       The model input. The dictionary needs to contain at least the following
+       keys:
+       * d - The distance to the cluster
+       * beta - The anisotropy parameter
+       * kappa - The rotation parameter, either as a global value or per
+                 tracer MGE component.
+       * mlr - The mass-to-light ratio, either as a global value of per mass
+               MGE component.
+       * incl - The inclination of the model.
+       * mbh - The assumed mass of the central black hole.
+       * rbh - The assumed radius of the black hole component included in the
+               model.
+       As an optional key, `mge_filename` is used, which should point to an
+       ESCV-file from which the MGE profiles are loaded.
+
+    Returns
+    -------
+    vz : array_like
+        The first order moments along the line of sight calculated by the CJAM
+        code.
+    v2zz : array_like
+        The second order moments along the line of sight calculated by the
+        CJAM code.
+    """
     global gx, gy, gmge_mass, gmge_lum
     
     use_mge_grid = gmge_mass is None
@@ -65,7 +113,7 @@ def run_cjam(parameters):
                               mbh=parameters['mbh'], rbh=parameters['rbh'])
 
     # get velocity and dispersion at every data point
-    # note that astropy Quanitities cannot be pickled, so multiprocessing only works when the values are returned
+    # note that astropy Quantities cannot be pickled, so multiprocessing only works when the values are returned
     return model['vz'].value, model['v2zz'].value
 
 
@@ -121,9 +169,11 @@ class Axisymmetric(Runner):
         mge_lum : instance of MgeReader, optional
             The Multi-Gaussian expansion (MGE) model of the projected
             luminosity density of the tracer population.
-        mge_files : str, optional
-            A file containing the MGE models for different assumed centres of
-            the system in ECSV-format.
+        mge_files : dict, optional
+            A dictionary containing as keys various (x, y) offsets relative to
+             the assumed centre (in arcsec!) and as values the filenames of
+             different ECSV-files containing the MGE models calculated after
+             shifting the centre by the provided offsets.
         kwargs
             Any additional keyword arguments are passed to the initialization
             of the parent Runner class.
@@ -136,17 +186,6 @@ class Axisymmetric(Runner):
         self.y = None
 
         super(Axisymmetric, self).__init__(data=data, parameters=parameters, **kwargs)
-
-        # # Get required columns. If units are available, make sure they are as we expect.
-        # # IMPORTANT: It is assumed that x is aligned with the (projected) semi-major axis of the system!
-        # self.x = u.Quantity(data.data['x'])
-        # if self.x.unit.is_unity():
-        #     self.x *= u.arcsec
-        #     logger.warning('Missing unit for <x> values. Assuming {0}.'.format(self.x.unit))
-        # self.y = u.Quantity(data.data['y'])
-        # if self.y.unit.is_unity():
-        #     self.y *= u.arcsec
-        #     logger.warning('Missing unit for <y> values. Assuming {0}.'.format(self.y.unit))
 
         assert isinstance(mge_mass, MgeReader) or mge_mass is None, "'mge_mass' must be instance of {0}".format(
             MgeReader.__module__)
@@ -173,41 +212,10 @@ class Axisymmetric(Runner):
         else:
             self.median_q = np.median(self.mge_lum.data['q'])
 
-        # make sure prior on barq is correct
+        # make sure prior on barq is correct in the Parameters instance.
         if self.parameters['barq'].max > self.median_q:
             logger.warning("Setting upper limit for parameter 'barq' to {0}.".format(self.median_q))
             self.parameters['barq'].set(max=self.median_q)
-
-#     @property
-#     def parameter_labels(self):
-#         labels = {}
-#         for row in self.initials:
-#             latex_string = row['init'].unit.to_string('latex')
-#             if row['name'] == 'd':
-#                 labels[row['name']] = r'$d/${0}'.format(latex_string)
-#             elif row['name'] == 'mlr':
-#                 labels[row['name']] = r'$\Upsilon/\frac{\rm M_\odot}{\rm L_\odot}$'
-#             elif row['name'] == 'barq':
-#                 labels[row['name']] = r'$\bar{q}$'
-#             elif row['name'] == 'kappa':
-#                 labels[row['name']] = r'$\kappa$'
-#             elif row['name'] == 'beta':
-#                 labels[row['name']] = r'$\beta$'
-#             elif row['name'] == 'delta_v':
-#                 labels[row['name']] = r'$\Delta v$'
-# #            elif row['name'] == 'theta_0':
-# #                labels[row['name']] = r'$\theta_{{\rm 0}}/${0}'.format(latex_string)
-#             else:
-#                 labels[row['name']] = r'${0}/${1}'.format(row['name'], latex_string)
-#         return labels
-
-    # def lnprior(self, values):
-    #     p = 0
-    #     current_parameters = self.fetch_parameter_values(values)
-    #
-    #     for parameter, value in current_parameters.items():
-    #
-    #     return p + super(Axisymmetric, self).lnprior(values=values)
 
     def lnlike(self, values, return_model=False):
         x = np.copy(self.x)
@@ -239,7 +247,7 @@ class Axisymmetric(Runner):
             mge_lum, mge_mass = mge_lum.data, mge_mass.data
             
             gridpoint = mge_lum['gridpoint'].max()
-            logger.info("delta_x: {:.3f}, delta_y: {:.3f}, gridpoint: {}".format(
+            logger.debug("delta_x: {:.3f}, delta_y: {:.3f}, gridpoint: {}".format(
                 current_parameters['delta_x'], current_parameters['delta_y'], gridpoint))
             
         else:
@@ -257,7 +265,6 @@ class Axisymmetric(Runner):
         y = ynew        
 
         # fixing cjam bug where it throws nans for star too close to centre
-
         xa = x.to(u.arcmin).value
         ya = y.to(u.arcmin).value
                 
@@ -269,8 +276,6 @@ class Axisymmetric(Runner):
         
         x = xa * u.arcmin
         y = ya * u.arcmin
-        
-        self.v += current_parameters['delta_v']
 
         # calculate JAM model for current parameters
         try:
@@ -288,6 +293,7 @@ class Axisymmetric(Runner):
         # get velocity and dispersion at every data point
         vz = model['vz']
         v2zz = model['v2zz']
+        v_los = vz - current_parameters['delta_v']
 
         # calculate likelihood
         if not (v2zz > vz**2).all():
@@ -295,44 +301,10 @@ class Axisymmetric(Runner):
             return -np.inf
 
         if return_model:
-            lnlike = self._calculate_lnlike(v_los=vz, sigma_los=np.sqrt(v2zz - vz**2))
+            lnlike = self._calculate_lnlike(v_los=v_los, sigma_los=np.sqrt(v2zz - vz**2))
             return lnlike, x, y, vz, v2zz
         
-        return self._calculate_lnlike(v_los=vz, sigma_los=np.sqrt(v2zz - vz**2))
-
-    # def get_initials(self, n_walkers):
-    #     initials = np.zeros((n_walkers, self.n_fitted_parameters))
-    #     i = 0
-    #     for row in self.initials:
-    #         if row['fixed']:
-    #             continue
-    #         elif row['name'] == 'barq':
-    #             initials[:, i] = self.median_q - 0.5*np.random.rand(n_walkers)
-    #         elif row['name'] == 'kappa_x' or row['name'] == 'kappa_y':
-    #             initials[:, i] = 2*row['init']*np.random.rand(n_walkers) - row['init']
-    #         elif len(row['name']) >= 5 and row['name'][:5] == 'kappa':
-    #             initials[:, i] = row['init'] + 0.3*np.random.randn(n_walkers)
-    #         elif row['name'] == 'mbh':
-    #             initials[:, i] = np.random.rand(n_walkers) * row['init']
-    #         elif row['name'] == 'delta_x' or row['name'] == 'delta_y':
-    #             # uniform on [-init, +init]
-    #             initials[:, i] = 2*row['init']*np.random.rand(n_walkers) - row['init']
-    #         elif row['name'] == 'delta_v':
-    #             initials[:, i] = 2*row['init']*np.random.rand(n_walkers) - row['init']
-    #         elif row['name'] == 'r_kappa':
-    #             a = 10
-    #             b= 150
-    #             initials[:, i] = (b-a) * np.random.rand(n_walkers) + a
-    #         elif row['name'] == 'r_mlr':
-    #             a = 10
-    #             b = 150
-    #             initials[:, i] = (b-a) * np.random.rand(n_walkers) + a
-    #
-    #         else:
-    #             initials[:, i] = row['init'] * (0.7 + 0.6*np.random.rand(n_walkers))*row['init'].unit
-    #         i += 1
-    #
-    #     return initials
+        return self._calculate_lnlike(v_los=v_los, sigma_los=np.sqrt(v2zz - vz**2))
 
     def create_profiles(self, chain, n_burn, n_threads=1, n_samples=100, radii=None, n_theta=10,
                         filename=None, save_samples=False):

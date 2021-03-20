@@ -3,20 +3,20 @@
     "rng_seed": null
   },
   "params": [
-    ["d", null, "kpc", false, 0.0, Infinity, "rng.lognormal(size=n)", null, null],
-    ["mlr_0", null, null, false, 0.0, Infinity, "rng.lognormal(size=n)", null, null],
-    ["mlr_t", null, null, false, 0.0, Infinity, "rng.lognormal(size=n)", null, null],
-    ["mlr_inf", null, null, false, 0.0, Infinity, "rng.lognormal(size=n)", null, null],
-    ["r_mlr", null, "arcsec", false, 0.0, Infinity, "rng.lognormal(size=n)", null, null],
-    ["barq", null, null, false, 0.0, 1.0, "rng.random(size=n)", null, null],
-    ["kappa_x", null, null, false, -Infinity, Infinity, "rng.normal(size=n)", null, null],
-    ["kappa_y", null, null, false, -Infinity, Infinity, "rng.normal(size=n)", null, null],
-    ["r_kappa", null, "arcsec", false, 0.0, Infinity, "rng.lognormal(size=n)", null, null],
-    ["beta", null, null, false, -Infinity, 1.0, "rng.uniform(-0.5, 0.5, size=n)", null, null],
-    ["mbh", null, "solMass", false, 0.0, Infinity, "rng.lognormal(size=n)", null, null],
-    ["delta_x", null, "arcsec", false, -Infinity, Infinity, "rng.normal(size=n)", null, null],
-    ["delta_y", null, "arcsec", false, -Infinity, Infinity, "rng.normal(size=n)", null, null],
-    ["rbh", null, "arcsec", false, 0.0, Infinity, "rng.lognormal(size=n)", null, null],
-    ["delta_v", null, "km/s", false, -Infinity, Infinity, "rng.normal(size=n)", null, null]
+    ["d", null, "kpc", false, 0.0, Infinity, "$d$", "rng.lognormal(size=n)", null, null],
+    ["mlr_0", null, null, false, 0.0, Infinity, "$\\Upsilon_{\\rm 0}$", "rng.lognormal(size=n)", null, null],
+    ["mlr_t", null, null, false, 0.0, Infinity, "$\\Upsilon_{\\rm t}$", "rng.lognormal(size=n)", null, null],
+    ["mlr_inf", null, null, false, 0.0, Infinity, "$\Upsilon_\\infty$", "rng.lognormal(size=n)", null, null],
+    ["r_mlr", null, "arcsec", false, 0.0, Infinity, "$r_{{\\rm \\Upsilon}}$", "rng.lognormal(size=n)", null, null],
+    ["barq", null, null, false, 0.0, 1.0, "$\\bar{q}$", "rng.random(size=n)", null, null],
+    ["kappa_x", null, null, false, -Infinity, Infinity, "$\\kappa_{\\rm x}$", "rng.normal(size=n)", null, null],
+    ["kappa_y", null, null, false, -Infinity, Infinity, "$\\kappa_{\\rm y}$", "rng.normal(size=n)", null, null],
+    ["r_kappa", null, "arcsec", false, 0.0, Infinity, "$r_{{\\rm \\kappa}}$", "rng.lognormal(size=n)", null, null],
+    ["beta", null, null, false, -Infinity, 1.0, "$\\beta$", "rng.uniform(-0.5, 0.5, size=n)", null, null],
+    ["mbh", null, "solMass", false, 0.0, Infinity, "$M_{\\rm BH}$", "rng.lognormal(size=n)", null, null],
+    ["delta_x", null, "arcsec", false, -Infinity, Infinity, "$\\Delta x$", "rng.normal(size=n)", null, null],
+    ["delta_y", null, "arcsec", false, -Infinity, Infinity, "$\\Delta y$", "rng.normal(size=n)", null, null],
+    ["rbh", null, "arcsec", false, 0.0, Infinity, "$r_{\\rm BH}$", "rng.lognormal(size=n)", null, null],
+    ["delta_v", null, "km/s", false, -Infinity, Infinity, "$\\Delta v$", "rng.normal(size=n)", null, null]
   ]
 }

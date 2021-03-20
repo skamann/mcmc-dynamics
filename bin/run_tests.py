@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description='Test MCMC code using mock data created on-the-fly.')
-    parser.add_argument('-n', '--nstars', type=int, default=300, help='The number of mock stars.')
-    parser.add_argument('-r', '--rmax', type=float, default=2.0, help='Maximum data radius relative to scale radius.')
+    parser.add_argument('-n', '--nstars', type=int, default=500, help='The number of mock stars.')
+    parser.add_argument('-r', '--rmax', type=float, default=5.0, help='Maximum data radius relative to scale radius.')
     parser.add_argument('--vsigma', type=float, default=0.5, help='Ratio between max. rotation and dispersion.')
     parser.add_argument('--errscale', type=float, default=0.1, help='Ratio between avg. uncertainty and dispersion.')
     parser.add_argument('-s', '--seed', type=int, default=None, help='Seed to initialize random-number generator.')
@@ -74,8 +74,8 @@ if __name__ == "__main__":
         if i == 0:
             cf.parameters.pretty_print()
         sampler = cf(n_walkers=100, n_steps=100, n_threads=1)
-        # cf.plot_chain(chain=sampler.chain)
-        # cf.create_triangle_plot(chain=sampler.chain, n_burn=50)
+        # _ = cf.plot_chain(chain=sampler.chain)
+        # _ = cf.create_triangle_plot(chain=sampler.chain, n_burn=50)
         # plt.show()
 
         results_i = (data_i.data['r'].mean(), data_i.data['r'].min(), data_i.data['r'].max())
@@ -121,6 +121,8 @@ if __name__ == "__main__":
     sampler = mf(n_threads=1)
 
     _ = mf.plot_chain(chain=sampler.chain, lnprob=sampler.lnprobability)
+    _ = mf.create_triangle_plot(chain=sampler.chain, n_burn=50)
+    plt.show()
 
     radial_model = mf.create_profiles(sampler.chain, n_burn=50)
 

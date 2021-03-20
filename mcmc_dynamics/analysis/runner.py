@@ -11,6 +11,7 @@ from matplotlib.collections import LineCollection
 from matplotlib.ticker import MaxNLocator
 from astropy import units as u
 from astropy.table import QTable
+
 from ..parameter import Parameters
 from ..background import Gaussian, SingleStars
 from ..utils.files.data_reader import DataReader
@@ -173,7 +174,7 @@ class Runner(object):
 
         return current_parameters
 
-    def lnprior(self, values):
+    def lnprior(self, values, parameters_to_ignore=None):
         """
         Checks if the priors on the parameters are fulfilled.
 
@@ -181,6 +182,11 @@ class Runner(object):
         ----------
         values : array_like
             The current values of the model parameters.
+        parameters_to_ignore : array_like
+            In case the `fetch_parameters` method calculates any additional
+            parameters not included in the Parameters() instance provided upon
+            class initialization, those parameters should be provided as a
+            list.
 
         Returns
         -------
@@ -189,13 +195,19 @@ class Runner(object):
             uninformative priors, this is zero is the values are within their
             defined limits and -inf otherwise.
         """
+        if parameters_to_ignore is None:
+            parameters_to_ignore = []
+
         lnlike = 0
         for name, value in self.fetch_parameter_values(values).items():
-            if name not in self.parameters.keys():  # TODO
-                continue
+            # check if parameter is valid
+            if name not in self.parameters.keys():
+                if name in parameters_to_ignore:
+                    continue
+                else:
+                    raise IOError("Method 'lnprior()' received invalid parameter '{0}.".format(name))
             lnlike += self.parameters[name].evaluate_lnprior(value)
             if not np.isfinite(lnlike):
-                print(name, value)
                 return -np.inf
         return lnlike
 
@@ -606,7 +618,7 @@ class Runner(object):
         labels = []
         for name, parameter in self.parameters.items():
             if not parameter.fixed:
-                labels.append(name)
+                labels.append(parameter.label)
         return labels
 
     def plot_chain(self, chain, filename='chains.png', true_values=None, figure=None, lnprob=None, plot_median=False):

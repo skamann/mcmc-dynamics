@@ -40,12 +40,6 @@ class ConstantFit(Runner):
 
         super(ConstantFit, self).__init__(data=data, parameters=parameters, **kwargs)
 
-        # # get required columns - if units were provided, make sure they are as we expect
-        # self.theta = u.Quantity(data.data['theta'])
-        # if self.theta.unit.is_unity():
-        #     self.theta *= u.rad
-        #     logging.warning('Missing unit for <theta> values, assuming {0}.'.format(self.theta.unit))
-
         # get parameters required to evaluate rotation and dispersion models
         self.rotation_parameters = inspect.signature(self.rotation_model).parameters
         self.dispersion_parameters = inspect.signature(self.dispersion_model).parameters
@@ -237,7 +231,7 @@ class ConstantFitGB(ConstantFit):
     MODEL_PARAMETERS = ['v_back', 'sigma_back', 'f_back', 'v_sys', 'sigma_max', 'v_maxx', 'v_maxy']
     OBSERVABLES = {'v': u.km/u.s, 'verr': u.km/u.s, 'theta': u.rad, 'density': u.dimensionless_unscaled}
 
-    def __init__(self, data, parameters, **kwargs):
+    def __init__(self, data, parameters=None, **kwargs):
         """
         Initialize a new instance of the ConstantFitGB class.
 
@@ -257,6 +251,9 @@ class ConstantFitGB(ConstantFit):
         """
         # additionally required observables
         self.density = None
+
+        if parameters is None:
+            parameters = Parameters().load(pkg_resources.open_text(config, 'constant_with_background.json'))
 
         # No additional background component is currently supported
         background = kwargs.pop('background', None)
