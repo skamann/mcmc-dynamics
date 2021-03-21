@@ -6,7 +6,7 @@
     ["d", null, "kpc", false, 0.0, Infinity, "$d$", "rng.lognormal(size=n)", null, null],
     ["mlr_0", null, null, false, 0.0, Infinity, "$\\Upsilon_{\\rm 0}$", "rng.lognormal(size=n)", null, null],
     ["mlr_t", null, null, false, 0.0, Infinity, "$\\Upsilon_{\\rm t}$", "rng.lognormal(size=n)", null, null],
-    ["mlr_inf", null, null, false, 0.0, Infinity, "$\Upsilon_\\infty$", "rng.lognormal(size=n)", null, null],
+    ["mlr_inf", null, null, false, 0.0, Infinity, "$\\Upsilon_\\infty$", "rng.lognormal(size=n)", null, null],
     ["r_mlr", null, "arcsec", false, 0.0, Infinity, "$r_{{\\rm \\Upsilon}}$", "rng.lognormal(size=n)", null, null],
     ["barq", null, null, false, 0.0, 1.0, "$\\bar{q}$", "rng.random(size=n)", null, null],
     ["kappa_x", null, null, false, -Infinity, Infinity, "$\\kappa_{\\rm x}$", "rng.normal(size=n)", null, null],

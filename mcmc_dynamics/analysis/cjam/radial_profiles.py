@@ -166,9 +166,9 @@ class AnalyticalProfiles(Axisymmetric):
 
         # use additional prior that `r_mlr` and `r_kappa` must be within range of MGE sigma values.
         if self.mge_mass is not None:
-            self.parameters["r_mlr"].set(min=self.mge_mass["s"].data.min(), max=self.mge_mass.data["s"].max())
+            self.parameters["r_mlr"].set(min=self.mge_mass.data["s"].min(), max=self.mge_mass.data["s"].max())
         if self.mge_lum is not None:
-            self.parameters["r_kappa"].set(min=self.mge_lum["s"].data.min(), max=self.mge_lum.data["s"].max())
+            self.parameters["r_kappa"].set(min=self.mge_lum.data["s"].min(), max=self.mge_lum.data["s"].max())
 
     @staticmethod
     def calculate_x_values(single_mge):

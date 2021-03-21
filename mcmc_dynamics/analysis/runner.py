@@ -208,6 +208,7 @@ class Runner(object):
                     raise IOError("Method 'lnprior()' received invalid parameter '{0}.".format(name))
             lnlike += self.parameters[name].evaluate_lnprior(value)
             if not np.isfinite(lnlike):
+                # print(name, value, self.parameters[name].min, self.parameters[name].max)
                 return -np.inf
         return lnlike
 

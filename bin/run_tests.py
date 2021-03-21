@@ -3,13 +3,10 @@ import argparse
 import logging
 import matplotlib.pyplot as plt
 import numpy as np
-
-from scipy import stats
 from astropy import units as u
 from astropy.table import QTable
 
 from mcmc_dynamics.analysis import ModelFit, ConstantFit
-from mcmc_dynamics.parameter import Parameter, Parameters
 from mcmc_dynamics.utils.plots import ProfilePlot
 from mcmc_dynamics.utils.files import DataReader
 
@@ -28,7 +25,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    # logger.setLevel(logging.INFO)
+    # DATA CREATION
     logging.basicConfig(level=logging.INFO)
     logger.info('Creating input data ...')
     np.random.seed(args.seed)
@@ -60,17 +57,25 @@ if __name__ == "__main__":
     data.data['verr'] = uncertainties
     logger.info(data.data)
 
+    # FIT IN RADIAL BINS
     logger.info('Analysing kinematics in radial bins ...')
     data.make_radial_bins(nstars=50, dlogr=0.1)
 
-    # create table for storing results from analysis in radial bins
+    # prepare container for storing results from analysis in radial bins
     radial_bins = []
     column_names = ('r mean', 'r min', 'r max')
 
     for i in range(data.data['bin'].max() + 1):
         data_i = data.fetch_radial_bin(i)
 
+        # initialize sampler
         cf = ConstantFit(data_i, parameters=None, background=None)
+
+        # modify function for creating initials for chains
+        cf.parameters['sigma_max'].set(initials='rng.lognormal(mean={0:.2f}, sigma=0.5, size=n)'.format(np.log(10.)))
+        cf.parameters['v_maxx'].set(initials='rng.normal(loc=0, scale=3, size=n)')
+        cf.parameters['v_maxy'].set(initials='rng.normal(loc=0, scale=3, size=n)')
+
         if i == 0:
             cf.parameters.pretty_print()
         sampler = cf(n_walkers=100, n_steps=100, n_threads=1)
@@ -104,28 +109,33 @@ if __name__ == "__main__":
     radial_profile = QTable(rows=radial_bins, names=column_names)
     print(radial_profile)
 
+    # MODEL FIT
     logger.info('Fitting radial model to data ...')
-
-    # parameters = Parameters(usersyms={'norm': stats.norm, 'lognorm': stats.lognorm})
-    # parameters.add(name='v_sys', value=v_sys, min=v_sys-10.*u.km/u.s, max=v_sys+10.*u.km/u.s, fixed=False)
-    # parameters.add(name='sigma_max', value=sigma_max, fixed=False, min=0, initials='norm(loc=5, scale=1).rvs')
-    # parameters.add(name='a', value=a, fixed=False, min=0, initials='lognorm(s=1, loc={0}).rvs'.format(a.value))
-    # parameters.add(name='v_maxx', value=0.5 * v_max, fixed=False,
-    #                initials='norm(loc={0}, scale=1).rvs'.format(0.5 * v_max.value))
-    # parameters.add(name='v_maxy', value=0.5 * v_max, fixed=False,
-    #                initials='norm(loc={0}, scale=1).rvs'.format(0.5 * v_max.value))
-    # parameters.add(name='r_peak', value=r_peak, fixed=False, min=0, max=10.*u.arcmin)
-    # parameters.pretty_print()
-
     mf = ModelFit(data=data, parameters=None)
+
+    # modify initials for some parameters. Radii are initialized using beta-function between min and max radius covered
+    # by data
+    r_min = data.data['r'].min()
+    r_max = data.data['r'].max()
+    mf.parameters['sigma_max'].set(initials='rng.lognormal(mean={0:.2f}, sigma=0.5, size=n)'.format(np.log(10.)))
+    mf.parameters['a'].set(
+        min=r_min, max=r_max, initials='{0}*rng.beta(a=2, b=5, size=n) + {1}'.format((r_max-r_min).value, r_min.value))
+    mf.parameters['v_maxx'].set(initials='rng.normal(loc=0, scale=3, size=n)')
+    mf.parameters['v_maxy'].set(initials='rng.normal(loc=0, scale=3, size=n)')
+    mf.parameters['r_peak'].set(
+        min=r_min, max=r_max, initials='{0}*rng.beta(a=2, b=5, size=n) + {1}'.format((r_max-r_min).value, r_min.value))
+    mf.parameters.pretty_print()
+
+    # run model calculation
     sampler = mf(n_threads=1)
 
-    _ = mf.plot_chain(chain=sampler.chain, lnprob=sampler.lnprobability)
-    _ = mf.create_triangle_plot(chain=sampler.chain, n_burn=50)
-    plt.show()
+    # _ = mf.plot_chain(chain=sampler.chain, lnprob=sampler.lnprobability)
+    # _ = mf.create_triangle_plot(chain=sampler.chain, n_burn=100)
+    # plt.show()
 
-    radial_model = mf.create_profiles(sampler.chain, n_burn=50)
+    radial_model = mf.create_profiles(sampler.chain, n_burn=100)
 
+    # PLOTTING
     logger.info('Plotting the results ...')
 
     r_true = np.logspace(-1, 2, 50)*u.arcsec
@@ -163,5 +173,6 @@ if __name__ == "__main__":
 
     pp.add_rotation_profile(r_true.value, v_rot_true, ls='-', lw=1.5, c='k', marker='None')
     pp.add_dispersion_profile(r_true.value, sigma_true, ls='-', lw=1.5, c='k', marker='None')
+    pp.add_theta_profile(r_true.value, theta_0*np.ones_like(r_true.value), ls='-', lw=1.5, c='k', marker='None')
 
     plt.show()
