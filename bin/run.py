@@ -321,7 +321,8 @@ def make_mlr_plot(runner, chain, n_burn, n_samples=128):
     
     lolim, median, uplim = np.percentile(mlr_profiles, [16, 50, 84], axis=0)
 
-    plt.style.use('sciencepaper')
+    if "sciencepaper" in plt.style.available:
+        plt.style.use("sciencepaper")
     fig, ax = plt.subplots(1, 1, figsize=(4, 3))
 
     color_label = "#333333"
