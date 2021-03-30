@@ -143,7 +143,7 @@ def plot_radial_profiles(radial_model, radial_profile, run_number=None, filename
     plt.savefig(_filename)
     
 
-def generate_radial_data(data, background, initials, run_number, deltas_x=(0,), deltas_y=(0,)): 
+def generate_radial_data(data, background, parameters, run_number, deltas_x=(0,), deltas_y=(0,)):
     members = data
     members.make_radial_bins(nstars=500, dlogr=0.2)
 
@@ -151,11 +151,10 @@ def generate_radial_data(data, background, initials, run_number, deltas_x=(0,), 
     radial_profile = QTable()
     for column in ['r mean', 'r min', 'r max']:
         radial_profile[column] = QTable.Column([], unit=members.data['r'].unit)
-    for parameter in initials:
-        if not parameter['fixed']:
+    for name, parameter in parameters.items():
+        if not parameter.fixed:
             for column in ['median', 'high', 'low']:
-                radial_profile['{0} {1}'.format(parameter['name'], column)] = QTable.Column(
-                    [], unit=parameter['init'].unit)
+                radial_profile['{0} {1}'.format(name, column)] = QTable.Column([], unit=parameter.unit)
                 
     if 'v_maxx median' in radial_profile.columns and 'v_maxy median' in radial_profile.columns:
         for column in ['median', 'high', 'low']:
@@ -184,7 +183,7 @@ def generate_radial_data(data, background, initials, run_number, deltas_x=(0,), 
             
             results_i = [data_i.data['r'].mean(), data_i.data['r'].min(), data_i.data['r'].max()]
             
-            cf = ConstantFit(data_i, initials=initials, background=background)
+            cf = ConstantFit(data_i, parameters=parameters, background=background)
             sampler = cf(n_walkers=16, n_steps=300)
 
             results = cf.compute_bestfit_values(chain=sampler.chain, n_burn=100)
@@ -260,13 +259,13 @@ def generate_radial_data(data, background, initials, run_number, deltas_x=(0,), 
     return radial_profile
 
 
-def make_radial_plots(runner, chain, data, background, initials, run_number, n_burn, radial_model=None,
+def make_radial_plots(runner, chain, data, background, parameters, run_number, n_burn, radial_model=None,
                       radial_profile=None):
     if radial_model is None:
         radial_model = runner.create_profiles(chain, n_burn=n_burn, n_threads=12, n_samples=100,
                                               filename="radial_profiles_{}.csv".format(run_number))
     if radial_profile is None:
-        radial_profile = generate_radial_data(chain, data, background, initials, run_number, n_burn)
+        radial_profile = generate_radial_data(chain, data, background, parameters, run_number, n_burn)
     
     plot_radial_profiles(radial_model=radial_model, radial_profile=radial_profile, run_number=run_number)
     
@@ -485,28 +484,30 @@ if __name__ == "__main__":
     make_mlr_plot(axisym, current_chain, config['n_burn'])
     logging.info("Plotted M/L profile.")
     # assert False
-    initials = [{'name': 'v_sys', 'init': 0 * u.km/u.s, 'fixed': True},
-                {'name': 'sigma_max', 'init': config['sigma_max'] * u.km/u.s, 'fixed': False},
-                {'name': 'v_maxx', 'init': config['v_maxx'] * u.km/u.s, 'fixed': False},
-                {'name': 'v_maxy', 'init': config['v_maxy'] * u.km/u.s, 'fixed': False}]
+    parameters = Parameters()
+    parameters.add(name="v_sys", value=0 * u.km/u.s, fixed=True)
+    parameters.add(name="sigma_max", value=config["sigma_max"] * u.km/u.s, fixed=False, min=0,
+                   initials="sigma_max*rng.lognormal(size=n)")
+    parameters.add(name="v_maxx", value=config["v_maxx"] * u.km/u.s, fixed=False)
+    parameters.add(name="v_maxy", value=config["v_maxy"] * u.km/u.s, fixed=False)
 
     if args.datafile is not None:
         radial_profile = table.QTable.read(args.datafile, format='ascii.ecsv')
     else:
         logging.info("Generating binned data ...")
-        parameters = axisym.sample_chain(current_chain, n_burn=config['n_burn'], n_samples=100)
-        delta_x = (np.median([p["delta_x"].value for p in parameters]) * parameters[0]["delta_x"].unit, )
-        delta_y = (np.median([p["delta_y"].value for p in parameters]) * parameters[0]["delta_y"].unit, )
+        parameter_samples = axisym.sample_chain(current_chain, n_burn=config['n_burn'], n_samples=100)
+        delta_x = (np.median([p["delta_x"].value for p in parameter_samples]) * parameter_samples[0]["delta_x"].unit,)
+        delta_y = (np.median([p["delta_y"].value for p in parameter_samples]) * parameter_samples[0]["delta_y"].unit,)
         
         if args.allcentres:   
-            delta_x = [p["delta_x"] for p in parameters]
-            delta_y = [p["delta_y"] for p in parameters]
+            delta_x = [p["delta_x"] for p in parameter_samples]
+            delta_y = [p["delta_y"] for p in parameter_samples]
         else:
             logging.info("Using only median centre offset.")        
             logging.info("Accounting for shift in centre: deltax = {:.2f}, delta_y = {:.2f}".format(
                 delta_x[0], delta_y[0]))
 
-        radial_profile = generate_radial_data(data, background, initials, run_number, deltas_x=delta_x,
+        radial_profile = generate_radial_data(data, background, parameters, run_number, deltas_x=delta_x,
                                               deltas_y=delta_y)
     
     if args.modelfile is not None:
