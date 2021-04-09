@@ -23,7 +23,7 @@ class VSigma(object):
 
         self.v_max = u.Quantity(v_max)
         if self.v_max.unit.is_unity():
-            self.density *= u.km/u.s
+            self.v_max *= u.km/u.s
             logger.warning('Missing unit of parameter <v_max>. Assuming {0}.'.format(self.v_max.unit))
 
         self.sigma = u.Quantity(sigma)
