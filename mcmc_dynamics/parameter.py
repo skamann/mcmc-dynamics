@@ -662,7 +662,7 @@ class Parameter(object):
             if self.unit is not None:
                 val = val.to(self.unit).value
             else:
-                logger.warning("Evaluating prior under assumption that units agree.")
+                # logger.warning("Evaluating prior under assumption that units agree.")
                 val = val.value
         if val < self.min or val > self.max:
             return -np.inf
