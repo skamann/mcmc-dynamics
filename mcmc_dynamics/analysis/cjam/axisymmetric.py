@@ -291,8 +291,12 @@ class Axisymmetric(Runner):
         logger.debug('CJAM call succeeded for {0}.'.format(unique_id))
 
         # get velocity and dispersion at every data point
-        vz = model['vz']
-        v2zz = model['v2zz']
+        try:
+            vz = model['vz']
+            v2zz = model['v2zz']
+        except TypeError:
+            logger.warning('CJAM call failed.')
+            return -np.inf
         v_los = vz - current_parameters['delta_v']
 
         # calculate likelihood
