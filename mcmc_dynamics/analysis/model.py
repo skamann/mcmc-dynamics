@@ -388,7 +388,7 @@ class ModelFitGB(ModelFit):
         # add constant parameters
         for name, parameter in self.parameters.items():
             if parameter.fixed:
-                parameters[name] = parameter.value
+                parameters[name] = u.Quantity(parameter.value, parameter.unit)
 
         # calculate log-likelihoods for background population
         v_back = parameters.pop('v_back')
