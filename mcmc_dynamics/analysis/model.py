@@ -234,7 +234,7 @@ class ModelFit(Runner):
             radii = np.logspace(-1, 2.5, 50)*u.arcsec
         else:
             radii = u.Quantity(radii)
-            if isinstance(radii.unit, u.dimensionless_unscaled):
+            if radii.unit is u.dimensionless_unscaled:
                 radii = radii*r_peak.unit
 
         v_max = np.sqrt(v_maxx**2 + v_maxy**2)
