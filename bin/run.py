@@ -233,7 +233,7 @@ def generate_radial_data(data, background, parameters, run_number, deltas_x=(0,)
                 
             k = 0
             for name, parameter in cf.parameters.items():
-                if parameter['fixed']:
+                if parameter.fixed:
                     continue
                 results_i.extend([results.loc['median'][name], results.loc['uperr'][name], results.loc['loerr'][name]])
                 k += 1
