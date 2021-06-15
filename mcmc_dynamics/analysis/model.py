@@ -474,8 +474,13 @@ class ModelFitNonGB(ModelFit):
         if parameters is None:
             parameters = Parameters().load(pkg_resources.open_text(config, 'model_with_background.json'))
 
+        background = kwargs.pop('background', None)
+
         # call parent class initialisation.
         super(ModelFitNonGB, self).__init__(data=data, parameters=parameters, **kwargs)
+
+        self.background = background
+        self.lnlike_background = self.background(self.v, self.verr)
 
     def lnlike(self, values):
         """
