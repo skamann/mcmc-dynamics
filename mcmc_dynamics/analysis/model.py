@@ -4,7 +4,7 @@ import logging
 import numpy as np
 import importlib.resources as pkg_resources
 from astropy import units as u
-from astropy.table import Table
+from astropy.table import Table, QTable
 from .runner import Runner
 from .. import config
 from ..parameter import Parameters
