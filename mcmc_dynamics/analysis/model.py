@@ -112,7 +112,7 @@ class ModelFit(Runner):
         In this model, the line-of-sight velocity is calculated from the
         systemic velocity and the rotation model as follows.
 
-        v_los = v_sys + 2*(v_max/r_peak)*x_pa/(1. + (x_pa / r_peak)^2),
+        v_los = v_sys + 2*(v_max/r_peak)*x_pa/(1. + (r / r_peak)^2),
 
         with x_pa = r*sin(theta - theta_0).
              v_max = sqrt(v_maxx^2 + v_maxy^2)
@@ -145,7 +145,7 @@ class ModelFit(Runner):
         theta_0 = np.arctan2(v_maxy, v_maxx)
 
         x_pa = self.r * np.sin(self.theta - theta_0)
-        return v_sys + 2. * (v_max / r_peak) * x_pa / (1. + (x_pa / r_peak) ** 2)
+        return v_sys + 2. * (v_max / r_peak) * x_pa / (1. + (self.r / r_peak) ** 2)
 
     def lnlike(self, values):
         """
