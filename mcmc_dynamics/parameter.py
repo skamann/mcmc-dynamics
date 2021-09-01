@@ -1,5 +1,6 @@
 import logging
 import json
+# import simplejson as json
 import numpy as np
 from copy import deepcopy
 from collections import OrderedDict
@@ -321,7 +322,7 @@ class Parameters(OrderedDict):
         return params_html_table(self)
 
     def add(self, name, value=None, unit=None, fixed=False, min=-np.inf, max=np.inf,
-            label=None, initials=None, lnprior=None):
+            label=None, initials=None, lnprior=None, expr=None):
         """Add a Parameter.
 
         Parameters
@@ -366,7 +367,7 @@ class Parameters(OrderedDict):
         else:
             self.__setitem__(name, Parameter(value=value, unit=unit, name=name,
                                              fixed=fixed, min=min, max=max, label=label,
-                                             initials=initials, lnprior=lnprior))
+                                             initials=initials, lnprior=lnprior, expr=expr))
 
     def add_many(self, *parlist):
         """Add many parameters, using a sequence of tuples.
@@ -382,7 +383,7 @@ class Parameters(OrderedDict):
         Examples
         --------
         >>>  params = Parameters()
-        # add with tuples: (NAME VALUE UNIT FIXED MIN MAX INITIALS LNPRIOR LABEL)
+        # add with tuples: (NAME VALUE UNIT FIXED MIN MAX INITIALS LNPRIOR LABEL, EXPRESSION)
         >>> params.add_many(('amp', 10, 'km/s', True, None, None, None, None, None),
         ...                 ('cen', 4, None, True, 0.0, None, None, None, None),
         ...                 ('wid', 1, None, False, None, None, None, None, None),
@@ -397,11 +398,11 @@ class Parameters(OrderedDict):
             if not isinstance(par, Parameter):
                 par = Parameter(*par)
             __params.append(par)
-            # par._delay_asteval = True
+            par._delay_asteval = True
             self.__setitem__(par.name, par)
 
-        # for para in __params:
-        #     para._delay_asteval = False
+        for para in __params:
+            para._delay_asteval = False
 
     def valuesdict(self):
         """Return an ordered dictionary of parameter values.
@@ -539,8 +540,7 @@ class Parameters(OrderedDict):
 class Parameter(object):
 
     def __init__(self, name, value=None, unit=None, fixed=False, min=-np.inf, max=np.inf,
-                 label=None, initials=None, lnprior=None, user_data=None):
-
+                 label=None, initials=None, lnprior=None, expr=None, user_data=None):
         super(Parameter, self).__init__()
 
         self.name = name
@@ -550,15 +550,17 @@ class Parameter(object):
         self.user_data = user_data
         self._lnprior = lnprior
         self._initials = initials
+        self._expr = expr
         self._label = label
         self._eval = None
         self._initials_ast = None
         self._lnprior_ast = None
+        self._expr_ast = None
         self._deps = None
-        # self._delay_asteval = False  # Not used at the moment
+        self._delay_asteval = False  # Not used at the moment
 
         # Initialize unit prior to value to that value is converted to requested unit if it is Quantity instance
-        self.value = None
+        self._value = None
         self.unit = None
 
         self._set_unit(unit)
@@ -566,7 +568,8 @@ class Parameter(object):
 
         self._init_bounds()
 
-    def set(self, value=None, unit=None, fixed=None, min=None, max=None, label=None, initials=None, lnprior=None):
+    def set(self, value=None, unit=None, fixed=None, min=None, max=None, label=None, initials=None, lnprior=None,
+            expr=None):
 
         if unit is not None:
             self._set_unit(unit)
@@ -590,6 +593,9 @@ class Parameter(object):
 
         if lnprior is not None:
             self.__set_lnprior(lnprior)
+
+        if expr is not None:
+            self.__set_expression(expr)
 
         if label is not None:
             self._label = label
@@ -680,6 +686,37 @@ class Parameter(object):
         else:
             return 0
 
+    @property
+    def expr(self):
+        """Return the mathematical expression used to constrain the value in fit."""
+        return self._expr
+
+    @expr.setter
+    def expr(self, val):
+        """Set the mathematical expression used to constrain the value in fit.
+
+        To remove a constraint you must supply an empty string.
+
+        """
+        self.__set_expression(val)
+
+    def __set_expression(self, val):
+        if val == '':
+            val = None
+        self._expr = val
+        if val is not None:
+            self.fixed = True
+        if not hasattr(self, '_eval'):
+            self._eval = None
+        if val is None:
+            self._expr_ast = None
+        if val is not None and self._eval is not None:
+            self._eval.error = []
+            self._eval.error_msg = None
+            self._expr_ast = self._eval.parse(val)
+            check_ast_errors(self._eval)
+            self._expr_deps = get_ast_names(self._expr_ast)
+
     def _set_value(self, val):
 
         if isinstance(val, u.Quantity):
@@ -697,12 +734,12 @@ class Parameter(object):
                 self._set_unit(_unit)
         else:
             _val = val
-        self.value = _val
+        self._value = _val
 
         if not hasattr(self, '_eval'):
             self._eval = None
         if self._eval is not None:
-            self._eval.symtable[self.name] = self.value
+            self._eval.symtable[self.name] = self._value
 
     def _set_unit(self, unit):
 
@@ -738,17 +775,17 @@ class Parameter(object):
                 raise IOError("Incompatible units provided for 'max' of parameter '%s'.".format(self.name))
         if self.value is None:
             if np.isfinite(self.min) & np.isfinite(self.max):
-                self.value = (self.min + self.max) / 2.
+                self._value = (self.min + self.max) / 2.
             else:
-                self.value = 0.
+                self._value = 0.
         if self.min > self.max:
             self.min, self.max = self.max, self.min
         if np.isclose(self.min, self.max, atol=1e-13, rtol=1e-13):
             raise ValueError("Parameter '%s' has min == max" % self.name)
-        if self.value > self.max:
-            self.value = self.max
-        if self.value < self.min:
-            self.value = self.min
+        if self._value > self.max:
+            self._value = self.max
+        if self._value < self.min:
+            self._value = self.min
 
     @property
     def label(self, format='latex_inline'):
@@ -770,7 +807,7 @@ class Parameter(object):
         """Return printable representation of a Parameter object."""
         s = []
         sval = "value=%s" % repr(self.value)
-        if self.fixed:
+        if self.fixed and self._expr is None:
             sval += " (fixed)"
         if self.unit is not None:
             sval += " unit={0}".format(self.unit)
@@ -780,6 +817,8 @@ class Parameter(object):
         s.append("bounds=[%s:%s]" % (repr(self.min), repr(self.max)))
         if self._initials is not None:
             s.append("initials='%s'" % self.initials)
+        if self._expr is not None:
+            s.append("expr='%s'" % self.expr)
         if self._lnprior is not None:
             s.append("lnprior=%s" % self.lnprior)
         return "<Parameter '%s', %s>" % (self.name, ', '.join(s))
@@ -787,19 +826,170 @@ class Parameter(object):
     def __getstate__(self):
         """Get state for pickle."""
         return (self.name, self.value, self.unit, self.fixed, self.min, self.max,
-                self._label, self.initials, self.lnprior, self.user_data)
+                self._label, self.initials, self.lnprior, self.user_data, self.expr)
 
     def __setstate__(self, state):
         """Set state for pickle."""
         (self.name, _value, _unit, self.fixed, self.min, self.max,
-         self._label, self._initials, self._lnprior, self.user_data) = state
+         self._label, self._initials, self._lnprior, self.user_data, self.expr) = state
         self._initials_ast = None
         self._lnprior_ast = None
+        self._expr_ast = None
         self._eval = None
         self._deps = []
-        # self._delay_asteval = False
+        self._delay_asteval = False
         self.unit = None
-        self.value = None
+        self._value = None
         self._set_unit(unit=_unit)
         self._set_value(val=_value)
         self._init_bounds()
+
+    def _getval(self):
+        """Get value, with bounds applied."""
+        # Note assignment to self._val has been changed to self.value
+        # The self.value property setter makes sure that the
+        # _expr_eval.symtable is kept up-to-date.
+        # If you just assign to self._val then _expr_eval.symtable[self.name]
+        # becomes stale if parameter.expr is not None.
+        if self._expr is not None:
+            if self._expr_ast is None:
+                self.__set_expression(self._expr)
+            if self._eval is not None:
+                if not self._delay_asteval:
+                    self._value = self._eval(self._expr_ast)
+                    check_ast_errors(self._eval)
+        return self._value
+
+    @property
+    def value(self):
+        """Return the numerical Parameter value, with bounds applied."""
+        return self._getval()
+
+    @value.setter
+    def value(self, val):
+        """Set the numerical Parameter value."""
+        self._set_value(val)
+
+    def __array__(self):
+        """array"""
+        return np.array(float(self._getval()))
+
+    def __str__(self):
+        """string"""
+        return self.__repr__()
+
+    def __abs__(self):
+        """abs"""
+        return abs(self._getval())
+
+    def __neg__(self):
+        """neg"""
+        return -self._getval()
+
+    def __pos__(self):
+        """positive"""
+        return +self._getval()
+
+    def __bool__(self):
+        """bool"""
+        return self._getval() != 0
+
+    def __int__(self):
+        """int"""
+        return int(self._getval())
+
+    def __float__(self):
+        """float"""
+        return float(self._getval())
+
+    def __trunc__(self):
+        """trunc"""
+        return self._getval().__trunc__()
+
+    def __add__(self, other):
+        """+"""
+        return self._getval() + other
+
+    def __sub__(self, other):
+        """-"""
+        return self._getval() - other
+
+    def __truediv__(self, other):
+        """/"""
+        return self._getval() / other
+
+    def __floordiv__(self, other):
+        """//"""
+        return self._getval() // other
+
+    def __divmod__(self, other):
+        """divmod"""
+        return divmod(self._getval(), other)
+
+    def __mod__(self, other):
+        """%"""
+        return self._getval() % other
+
+    def __mul__(self, other):
+        """*"""
+        return self._getval() * other
+
+    def __pow__(self, other):
+        """**"""
+        return self._getval() ** other
+
+    def __gt__(self, other):
+        """>"""
+        return self._getval() > other
+
+    def __ge__(self, other):
+        """>="""
+        return self._getval() >= other
+
+    def __le__(self, other):
+        """<="""
+        return self._getval() <= other
+
+    def __lt__(self, other):
+        """<"""
+        return self._getval() < other
+
+    def __eq__(self, other):
+        """=="""
+        return self._getval() == other
+
+    def __ne__(self, other):
+        """!="""
+        return self._getval() != other
+
+    def __radd__(self, other):
+        """+ (right)"""
+        return other + self._getval()
+
+    def __rtruediv__(self, other):
+        """/ (right)"""
+        return other / self._getval()
+
+    def __rdivmod__(self, other):
+        """divmod (right)"""
+        return divmod(other, self._getval())
+
+    def __rfloordiv__(self, other):
+        """// (right)"""
+        return other // self._getval()
+
+    def __rmod__(self, other):
+        """% (right)"""
+        return other % self._getval()
+
+    def __rmul__(self, other):
+        """* (right)"""
+        return other * self._getval()
+
+    def __rpow__(self, other):
+        """** (right)"""
+        return other ** self._getval()
+
+    def __rsub__(self, other):
+        """- (right)"""
+        return other - self._getval()
