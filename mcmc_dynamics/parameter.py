@@ -109,13 +109,20 @@ class Parameters(OrderedDict):
             if isinstance(par, Parameter):
                 param = Parameter(name=par.name,
                                   value=par.value,
+                                  unit=par.unit,
+                                  fixed=par.fixed,
                                   min=par.min,
-                                  max=par.max)
-                param.fixed = par.fixed
-                param.initials = par.initials
-                param.lnprior = par.lnprior
-                param.label = par._label
-                param.user_data = par.user_data
+                                  max=par.max,
+                                  label=par.label,
+                                  initials=par.initials,
+                                  lnprior=par.lnprior,
+                                  expr=par.expr,
+                                  user_data=par.user_data)
+                # param.fixed = par.fixed
+                # param.initials = par.initials
+                # param.lnprior = par.lnprior
+                # param.label = par._label
+                # param.user_data = par.user_data
                 parameter_list.append(param)
 
         _pars.add_many(*parameter_list)
@@ -447,6 +454,12 @@ class Parameters(OrderedDict):
 
         random_state = unique_symbols['rng'].bit_generator.state
         del unique_symbols['rng']
+
+        for i in range(len(params)):
+            if params[i][2] == u.dimensionless_unscaled:
+                params[i] = list(params[i])
+                params[i][2] = None
+                params[i] = tuple(params[i])
 
         return json.dumps({'unique_symbols': unique_symbols, 'random_state': random_state,
                            'params': params}, cls=JsonCustomEncoder, **kws)
