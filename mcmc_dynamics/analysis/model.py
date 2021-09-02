@@ -217,12 +217,28 @@ class ModelFit(Runner):
         fitted_models = {}
 
         i = 0
-        for name, parameter in self.parameters.items():
+        do_later = []
+        params = self.parameters.copy()
+        for name, parameter in params.items():
             if parameter.fixed:
-                fitted_models[name] = u.Quantity(parameter.value, parameter.unit)
+                if parameter.expr is not None:
+                    do_later.append(parameter)
             else:
-                fitted_models[name] = u.Quantity(chains[:, n_burn:, i].flatten(), parameter.unit)
+                parameter.value = u.Quantity(chains[:, n_burn:, i].flatten(), parameter.unit)
                 i += 1
+
+        for parameter in do_later:
+            parameter.__getstate__()
+
+        for name, parameter in params.items():
+            fitted_models[name] = u.Quantity(parameter.value, parameter.unit)
+
+        # for name, parameter in self.parameters.items():
+        #     if parameter.fixed:
+        #         fitted_models[name] = u.Quantity(parameter.value, parameter.unit)
+        #     else:
+        #         fitted_models[name] = u.Quantity(chains[:, n_burn:, i].flatten(), parameter.unit)
+        #         i += 1
 
         v_maxx = fitted_models['v_maxx']
         v_maxy = fitted_models['v_maxy']
