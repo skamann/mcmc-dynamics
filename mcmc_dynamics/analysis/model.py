@@ -180,7 +180,8 @@ class ModelFit(Runner):
             elif parameter in self.dispersion_parameters.keys():
                 kwargs_dispersion[parameter] = value
             else:
-                raise IOError('Unknown model parameter "{0}" provided.'.format(parameter))
+                continue
+                # logger.warning('Unknown model parameter "{0}" provided.'.format(parameter))
 
         # evaluate functions at positions of measurements
         v_los = self.rotation_model(**kwargs_rotation)
@@ -217,6 +218,7 @@ class ModelFit(Runner):
         fitted_models = {}
 
         i = 0
+        '''
         do_later = []
         params = self.parameters.copy()
         for name, parameter in params.items():
@@ -232,13 +234,13 @@ class ModelFit(Runner):
 
         for name, parameter in params.items():
             fitted_models[name] = u.Quantity(parameter.value, parameter.unit)
-
-        # for name, parameter in self.parameters.items():
-        #     if parameter.fixed:
-        #         fitted_models[name] = u.Quantity(parameter.value, parameter.unit)
-        #     else:
-        #         fitted_models[name] = u.Quantity(chains[:, n_burn:, i].flatten(), parameter.unit)
-        #         i += 1
+        '''
+        for name, parameter in self.parameters.items():
+            if parameter.fixed:
+                fitted_models[name] = u.Quantity(parameter.value, parameter.unit)
+            else:
+                fitted_models[name] = u.Quantity(chains[:, n_burn:, i].flatten(), parameter.unit)
+                i += 1
 
         v_maxx = fitted_models['v_maxx']
         v_maxy = fitted_models['v_maxy']
@@ -424,7 +426,8 @@ class ModelFitGB(ModelFit):
             elif parameter in self.dispersion_parameters.keys():
                 kwargs_dispersion[parameter] = value
             else:
-                raise IOError('Unknown model parameter "{0}" provided.'.format(parameter))
+                continue
+                # logger.warning('Unknown model parameter "{0}" provided.'.format(parameter))
 
         # evaluate models of positions of data points
         v_los = self.rotation_model(**kwargs_rotation)
@@ -544,7 +547,7 @@ class ModelFitNonGB(ModelFit):
         self.background = background
         self.lnlike_background = self.background(self.v, self.verr)
 
-    def lnlike(self, values):
+    def lnlike(self, values, no_sum=False):
         """
         Calculate the log likelihood of the current model given the data.
 
@@ -585,7 +588,8 @@ class ModelFitNonGB(ModelFit):
             elif parameter in self.dispersion_parameters.keys():
                 kwargs_dispersion[parameter] = value
             else:
-                raise IOError('Unknown model parameter "{0}" provided.'.format(parameter))
+                continue
+                # logger.warning('Unknown model parameter "{0}" provided.'.format(parameter))
 
         # evaluate models of positions of data points
         v_los = self.rotation_model(**kwargs_rotation)
@@ -598,10 +602,15 @@ class ModelFitNonGB(ModelFit):
         lnlike_cluster = -0.5 * np.log(2. * np.pi * norm.value) + exponent
 
         max_lnlike = np.max([lnlike_cluster, self.lnlike_background], axis=0)
+        # m[max_lnlike < -10] = 0.0
 
         lnlike = max_lnlike + np.log(m*np.exp(lnlike_cluster - max_lnlike)
                                      + (1. - m)*np.exp(self.lnlike_background - max_lnlike))
-        return lnlike.sum()
+        # lnlike[max_lnlike < -10] = self.lnlike_background[max_lnlike < -10]
+        if no_sum:
+            return lnlike
+        else:
+            return lnlike.sum()
 
     def calculate_membership_probabilities(self, chain, n_burn):
 
