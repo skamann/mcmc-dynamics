@@ -104,7 +104,7 @@ class ModelFit(Runner):
 
         return sigma_max / (1. + self.r ** 2 / a ** 2) ** 0.25
 
-    def rotation_model(self, v_sys, v_maxx, v_maxy, r_peak=1., **kwargs):
+    def rotation_model(self, v_sys, v_maxx, v_maxy, r_peak=None, **kwargs):
         """
         The method calculates the line-of-sight velocity at the positions
         (r, theta) of the available data points.
@@ -140,6 +140,9 @@ class ModelFit(Runner):
         if kwargs:
             raise IOError('Unknown keyword argument(s) "{0}" for method {1}.rotation_model.'.format(
                 ', '.join(kwargs.keys()), self.__class__.__name__))
+
+        if r_peak is None:
+            r_peak = np.median(self.r)
 
         v_max = np.sqrt(v_maxx**2 + v_maxy**2)
         theta_0 = np.arctan2(v_maxy, v_maxx)
@@ -377,6 +380,7 @@ class ModelFitGB(ModelFit):
         max_lnlike = np.max([lnlike_cluster, lnlike_back], axis=0)
 
         lnlike = max_lnlike + np.log(m*np.exp(lnlike_cluster - max_lnlike) + (1. - m)*np.exp(lnlike_back - max_lnlike))
+
         return lnlike.sum()
 
     def calculate_membership_probabilities(self, chain, n_burn):

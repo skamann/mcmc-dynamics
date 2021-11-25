@@ -204,7 +204,7 @@ class AnalyticalProfiles(Axisymmetric):
 
     def fetch_parameter_values(self, values, return_rkappa=False, return_mge=False):
         """
-        Following the call of the equivalent method in the parenty class, the
+        Following the call of the equivalent method in the parent class, the
         values of `mlr` and `kappa` for each Gaussian component in the MGEs
         need to be calculated.
 
