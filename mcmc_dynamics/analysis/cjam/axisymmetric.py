@@ -253,7 +253,10 @@ class Axisymmetric(Runner):
         else:
             mge_lum = self.mge_lum.data
             mge_mass = self.mge_mass.data
-        
+
+        # get rotation amplitude
+        kappa = np.sqrt(current_parameters['kappa_x']**2 + current_parameters['kappa_y']**2)
+
         # rotating data to determine rotation angle of cluster
         # copied from data_reader.DataReader.rotate()
         theta0 = np.arctan2(current_parameters['kappa_y'], current_parameters['kappa_x'])
@@ -280,9 +283,8 @@ class Axisymmetric(Runner):
         # calculate JAM model for current parameters
         try:
             model = cjam.axisymmetric(x, y, mge_lum, mge_mass, current_parameters['d'],
-                                      beta=current_parameters['beta'], kappa=current_parameters['kappa'],
-                                      mscale=current_parameters['mlr'], incl=incl, mbh=current_parameters['mbh'],
-                                      rbh=current_parameters['rbh'])
+                                      beta=current_parameters['beta'], kappa=kappa, mscale=current_parameters['mlr'],
+                                      incl=incl, mbh=current_parameters['mbh'], rbh=current_parameters['rbh'])
 
         except ValueError as err:
             logger.warning("CJAM returned an error:", err)
@@ -362,7 +364,10 @@ class Axisymmetric(Runner):
         for i in range(len(parameters)):
             barq = parameters[i].pop('barq')
             parameters[i]['incl'] = np.arccos(np.sqrt((self.median_q**2 - barq**2)/(1. - barq**2)))
-            
+
+            if 'kappa_x' in parameters[i] and 'kappa_y' in parameters[i] and 'kappa' not in parameters[i]:
+                parameters[i]['kappa'] = np.sqrt(parameters[i]['kappa_x']**2 + parameters[i]['kappa_y']**2)
+
         if self.use_mge_grid:
             for i, p in enumerate(parameters):
                 idx = get_nearest_neigbhbour_idx2(-p['delta_x'].to(u.arcsec).value, -p['delta_y'].to(u.arcsec).value,
