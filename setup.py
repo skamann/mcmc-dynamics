@@ -4,6 +4,7 @@ setup(
     name='mcmc-dynamics',
     version='0.2',
     packages=find_packages("./"),
+    scripts=['bin/cluster_elongation.py'],
     package_data={"": ["*.json"]},
     url='',
     license='',
