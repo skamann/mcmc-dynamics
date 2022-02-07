@@ -3,12 +3,12 @@
     "rng_seed": null
   },
   "params": [
-    ["v_sys", null, "km/s", false, -Infinity, Infinity, "$v_{\\rm sys}$", "rng.normal(size=n)", null, null],
-    ["sigma_max", null, "km/s", false, 0.0, Infinity, "$\\sigma_{\\rm max}$", "rng.lognormal(size=n)", null, null],
-    ["v_maxx", null, "km/s", false, -Infinity, Infinity, "$v_{\\rm max,\\,x}$", "rng.normal(size=n)", null, null],
-    ["v_maxy", null, "km/s", false, -Infinity, Infinity, "$v_{\\rm max,\\,y}$", "rng.normal(size=n)", null, null],
-    ["v_back", null, "km/s", false, -Infinity, Infinity, "$v_{\\rm back}$", "rng.normal(size=n)", null, null],
-    ["sigma_back", null, "km/s", false, 0.0, Infinity, "$\\sigma_{\\rm back}$", "rng.lognormal(size=n)", null, null],
-    ["f_back", null, null, false, 0.0, 1.0, "$f_{\\rm back}$", "rng.uniform(size=n)", null, null]
+    ["v_sys", null, "km/s", false, -Infinity, Infinity, "$v_{\\rm sys}$", "rng.normal(size=n)", null, null, null],
+    ["sigma_max", null, "km/s", false, 0.0, Infinity, "$\\sigma_{\\rm max}$", "rng.lognormal(size=n)", null, null, null],
+    ["v_maxx", null, "km/s", false, -Infinity, Infinity, "$v_{\\rm max,\\,x}$", "rng.normal(size=n)", null, null, null],
+    ["v_maxy", null, "km/s", false, -Infinity, Infinity, "$v_{\\rm max,\\,y}$", "rng.normal(size=n)", null, null, null],
+    ["v_back", null, "km/s", false, -Infinity, Infinity, "$v_{\\rm back}$", "rng.normal(size=n)", null, null, null],
+    ["sigma_back", null, "km/s", false, 0.0, Infinity, "$\\sigma_{\\rm back}$", "rng.lognormal(size=n)", null, null, null],
+    ["f_back", null, null, false, 0.0, 1.0, "$f_{\\rm back}$", "rng.uniform(size=n)", null, null, null]
   ]
 }
