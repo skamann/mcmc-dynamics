@@ -859,11 +859,6 @@ class Parameter(object):
 
     def _getval(self):
         """Get value, with bounds applied."""
-        # Note assignment to self._val has been changed to self.value
-        # The self.value property setter makes sure that the
-        # _expr_eval.symtable is kept up-to-date.
-        # If you just assign to self._val then _expr_eval.symtable[self.name]
-        # becomes stale if parameter.expr is not None.
         if self._expr is not None:
             if self._expr_ast is None:
                 self.__set_expression(self._expr)
