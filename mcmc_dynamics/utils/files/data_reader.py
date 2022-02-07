@@ -168,7 +168,7 @@ class DataReader(object):
             bin_number[i:j] = np.max(bin_number) + 1
             i = j
 
-        if (self.sample_size - i) > 0.5 * nstars:
+        if (self.sample_size - i) > 0.5 * nstars or np.max(bin_number) == -1:
             bin_number[i:] = np.max(bin_number) + 1
         else:
             bin_number[i:] = np.max(bin_number)

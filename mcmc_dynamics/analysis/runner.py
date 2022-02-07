@@ -169,6 +169,7 @@ class Runner(object):
                     v = values[i] * parameter.unit
                 i += 1
             current_parameters[name] = v
+            self.parameters[name].value = v
 
         assert i == len(values), 'Not all parameters used.'
 
@@ -208,7 +209,6 @@ class Runner(object):
                     raise IOError("Method 'lnprior()' received invalid parameter '{0}.".format(name))
             lnlike += self.parameters[name].evaluate_lnprior(value)
             if not np.isfinite(lnlike):
-                # print(name, value, self.parameters[name].min, self.parameters[name].max)
                 return -np.inf
         return lnlike
 
@@ -598,6 +598,7 @@ class Runner(object):
             if parameter.fixed:
                 continue
             else:
+                parameter.value = percentiles[1, i]
                 col = QTable.Column(
                     [percentiles[1, i], percentiles[2, i] - percentiles[1, i], percentiles[1, i] - percentiles[0, i]],
                     name=name, unit=parameter.unit)
