@@ -3,7 +3,6 @@ import pickle
 import warnings
 import matplotlib.pyplot as plt
 import numpy as np
-from pathos.multiprocessing import Pool
 import corner
 import emcee
 from pathos.multiprocessing import Pool
@@ -12,6 +11,8 @@ from matplotlib.collections import LineCollection
 from matplotlib.ticker import MaxNLocator
 from astropy import units as u
 from astropy.table import QTable
+
+from ..parameter import Parameters
 from ..background import Gaussian, SingleStars
 from ..utils.files.data_reader import DataReader
 
@@ -20,19 +21,30 @@ logger = logging.getLogger(__name__)
 
 
 class Runner(object):
+    """
+    This class serves as parent class for any of the classes provided to
+    analyse the internal kinematics of a stellar system.
 
-    def __init__(self, data, initials, seed=123, background=None, **kwargs):
+    Classes that inherit from `Runner` must at least specify the observables
+    and model parameters required by the analysis (see variables `OBSERVABLES`
+    and `MODEL_PARAMETERS`). Further, they need to define their own `lnlike`
+    method, which takes a set of parameter values as input in order to
+    calculate and return a log likelihood of the model given the data.
+    """
+
+    MODEL_PARAMETERS = []
+    OBSERVABLES = {'v': u.km/u.s, 'verr': u.km/u.s}
+
+    def __init__(self, data, parameters, seed=123, background=None, **kwargs):
         """
         Initializes a new instance of the Runner class.
 
         Parameters
         ----------
         data : instance of DataReader
-            Provides all necessary information about the observed data.
-        initials : list of dictionaries
-            The status of the model parameters in the analysis. For each
-             parameter in the analysis, at least the entries 'name',
-            'init', and 'fixed' must be provided.
+            The observed data.
+        parameters : instance of Parameters
+            The model parameters.
         seed : int, optional
             The seed used to initialize the random number generator.
         kwargs :
@@ -44,39 +56,26 @@ class Runner(object):
         # Reproducible results!
         np.random.seed(seed)
 
-        self._observables = None
-        self._parameters = None
-
         # required observables
         self.v = None
         self.verr = None
 
-        assert isinstance(data, DataReader), "<data> must be instance of {0}".format(DataReader.__module__)
+        # sanity checks on data
+        assert isinstance(data, DataReader), "'data' must be instance of {0}".format(DataReader.__module__)
         self.data = data
 
-        # # get required columns - if no units were provided, trigger warning
-        # self.v = u.Quantity(data.data['v'])
-        # if self.v.unit.is_unity():
-        #     self.v *= (u.km / u.s)
-        #     logger.warning('Missing units for <v> values. Assuming {0}.'.format(self.v.unit))
-        #
-        # self.verr = u.Quantity(data.data['verr'])
-        # if self.verr.unit.is_unity():
-        #     self.verr *= (u.km/u.s)
-        #     logger.warning('Missing units for <verr> values. Assuming {0}.'.format(self.verr.unit))
-
         # if cartesian coordinates are required but not present, check if they can be recovered
-        if 'x' in self.observables or 'y' in self.observables:
+        if 'x' in self.OBSERVABLES or 'y' in self.OBSERVABLES:
             if not data.has_cartesian and data.has_polar:
                 data.compute_cartesian()
 
         # if polar coordinates are required but not present, check if they can be recovered
-        if 'r' in self.observables or 'theta' in self.observables:
+        if 'r' in self.OBSERVABLES or 'theta' in self.OBSERVABLES:
             if not data.has_polar and data.has_cartesian:
                 data.compute_polar()
 
         # make sure all required columns are available
-        for required, unit in self.observables.items():
+        for required, unit in self.OBSERVABLES.items():
             assert required in data.data.columns, "Input data missing required column <{0}>".format(required)
             quantity = u.Quantity(data.data[required])
             if quantity.unit.is_unity() and not unit.is_unity():
@@ -84,42 +83,23 @@ class Runner(object):
                 logger.warning('Missing units for <{0}> values. Assuming {1}.'.format(required, unit))
             setattr(self, required, quantity)
 
-        # get initial parameter values
-        self.initials = initials.copy()
+        # sanity checks on parameters
+        assert isinstance(parameters, Parameters), "'parameters' must be instance of {0}".format(Parameters.__module__)
+        self.parameters = parameters
 
-        # initial values
-        for i, initial in enumerate(self.initials):
+        missing = set(self.MODEL_PARAMETERS).difference(self.parameters)
+        if missing:
+            raise IOError("Missing required parameter(s): '{0}'".format(missing))
 
-            # check validity
-            for prop in ['name', 'init', 'fixed']:
-                if prop not in initial.keys():
-                    logger.error('Invalid entry in initials: {0}'.format(initial))
-
-            # check if needed
-            if initial['name'] not in self.parameters.keys():
-                logger.warning('Unknown initial parameter <{0}> provided.'.format(initial['name']))
-                continue
-
-            # make sure units are as we expect them
-            self.initials[i]['init'] = u.Quantity(initial['init'])
-            if self.initials[i]['init'].unit.is_unity():
-                if 'unit' in initial.keys():
-                    self.initials[i]['init'] = self.initials[i]['init'].value*u.Unit(initial['unit'])
-                elif not self.parameters[initial['name']].is_unity():
-                    self.initials[i]['init'] = self.initials[i]['init'].value*self.parameters[initial['name']]
-                    logger.warning('Missing unit for parameter {0}. Assuming {1}.'.format(
-                        initial['name'], self.initials[i]['init'].unit))
-
-        # check if initials for all required parameters have been provided
-        for parameter in self.parameters:
-            assert parameter in [p['name'] for p in self.initials], "Missing initial value for parameter <{0}>".format(
-                parameter)
+        unused = set(self.parameters).difference(self.MODEL_PARAMETERS)
+        if unused:
+            logger.warning("Superfluous parameter(s) provided: '{0}'".format(unused))
 
         # check consistency of provided background population
         self.background = background
         if self.background:
-            assert isinstance(background, (SingleStars, Gaussian)), \
-                "<background> must be an instance of a Background class."
+            assert isinstance(
+                background, (SingleStars, Gaussian)), "'background' must be an instance of a Background class."
             if 'pmember' not in self.data.data.columns:
                 logger.error('Inclusion of background population requires prior probabilities for membership.')
             self.lnlike_background = self.background(self.v, self.verr)
@@ -127,22 +107,6 @@ class Runner(object):
         else:
             self.lnlike_background = None
             self.pmember = None
-
-    @property
-    def observables(self):
-        if self._observables is None:
-            self._observables = {'v': u.km/u.s, 'verr': u.km/u.s}
-        return self._observables
-
-    @property
-    def parameters(self):
-        if self._parameters is None:
-            self._parameters = {}
-        return self._parameters
-
-    @property
-    def parameter_labels(self):
-        return {}
 
     @property
     def n_data(self):
@@ -156,23 +120,23 @@ class Runner(object):
         """
         Returns the names of the fitted parameters.
         """
-        return [p['name'] for p in self.initials if not p['fixed']]
+        return [p for p in self.parameters if not self.parameters[p].fixed]
 
     @property
     def n_fitted_parameters(self):
         """
         Returns the number of fitted parameters
         """
-        return sum([not p['fixed'] for p in self.initials])
+        return len(self.fitted_parameters)
 
     @property
     def units(self):
         """
         Returns the units of the fitted parameters
         """
-        return {p['name']: p['init'].unit for p in self.initials if not p['fixed']}
+        return {p: self.parameters[p].unit for p in self.parameters}
 
-    def fetch_parameters(self, values):
+    def fetch_parameter_values(self, values):
         """
         Collects the current model parameters (fixed or considered for
         optimization) and stores them in a dictionary.
@@ -192,25 +156,25 @@ class Runner(object):
         current_parameters = {}
 
         i = 0
-        for row in self.initials:
-            if row['fixed']:
-                v = row['init']
+        for name, parameter in self.parameters.items():
+            if parameter.fixed:
+                v = u.Quantity(parameter.value, parameter.unit)
             else:
                 # units are lost in MCMC call, so they need to be recovered
                 try:
-                    v = u.Quantity(values[i], unit=row['init'].unit)
+                    v = u.Quantity(values[i], unit=parameter.unit)
                 except u.core.UnitTypeError:
-                    v = u.Dex(values[i], unit=row['init'].unit)
+                    v = u.Dex(values[i], unit=parameter.unit)
                 except u.core.UnitConversionError:
-                    v = values[i] * row['init'].unit
+                    v = values[i] * parameter.unit
                 i += 1
-            current_parameters[row['name']] = v
+            current_parameters[name] = v
 
         assert i == len(values), 'Not all parameters used.'
 
         return current_parameters
 
-    def lnprior(self, values):
+    def lnprior(self, values, parameters_to_ignore=None):
         """
         Checks if the priors on the parameters are fulfilled.
 
@@ -218,6 +182,11 @@ class Runner(object):
         ----------
         values : array_like
             The current values of the model parameters.
+        parameters_to_ignore : array_like
+            In case the `fetch_parameters` method calculates any additional
+            parameters not included in the Parameters() instance provided upon
+            class initialization, those parameters should be provided as a
+            list.
 
         Returns
         -------
@@ -226,11 +195,22 @@ class Runner(object):
             uninformative priors, this is zero is the values are within their
             defined limits and -inf otherwise.
         """
-        # check model parameters
-        for _, value in self.fetch_parameters(values).items():
-            if not np.isfinite(value).all():
+        if parameters_to_ignore is None:
+            parameters_to_ignore = []
+
+        lnlike = 0
+        for name, value in self.fetch_parameter_values(values).items():
+            # check if parameter is valid
+            if name not in self.parameters.keys():
+                if name in parameters_to_ignore:
+                    continue
+                else:
+                    raise IOError("Method 'lnprior()' received invalid parameter '{0}.".format(name))
+            lnlike += self.parameters[name].evaluate_lnprior(value)
+            if not np.isfinite(lnlike):
+                # print(name, value, self.parameters[name].min, self.parameters[name].max)
                 return -np.inf
-            return 0
+        return lnlike
 
     def lnlike(self, values):
         """
@@ -294,11 +274,11 @@ class Runner(object):
             # trick is used. From both exponents their maximum value is subtracted and added as an additive term to
             # the final log likelihood.
             lnlike_member = -0.5*np.log(2. * np.pi * norm.value) + exponent
-            #print(lnlike_member)
+
             max_lnlike = np.max([lnlike_member, self.lnlike_background], axis=0)
             lnlike = max_lnlike + np.log(self.pmember*np.exp(lnlike_member - max_lnlike) + (
                     1. - self.pmember)*np.exp(self.lnlike_background - max_lnlike))
-            #print(lnlike.sum())
+
             return lnlike.sum()
 
     def lnprob(self, values):
@@ -337,11 +317,11 @@ class Runner(object):
         """
         initials = np.zeros((n_walkers, self.n_fitted_parameters))
         i = 0
-        for row in self.initials:
-            if row['fixed']:
+        for name, parameter in self.parameters.items():
+            if parameter.fixed:
                 continue
             else:
-                initials[:, i] = np.random.rand(n_walkers)
+                initials[:, i] = parameter.evaluate_initials(n_walkers)
             i += 1
         return initials
 
@@ -406,8 +386,9 @@ class Runner(object):
 
         # check if starting values fulfil priors
         for i in range(n_walkers):
-            assert np.isfinite(self.lnprior(pos[i])), "Invalid initial guesses for walker {0}: {1}={2}".format(
-                i, [p['name'] for p in self.initials if not p['fixed']], pos[i])
+            if not np.isfinite(self.lnprior(pos[i])):
+                raise ValueError(
+                    "Invalid initial guesses for walker {0}: {1}={2}".format(i, self.fitted_parameters, pos[i]))
 
         # start MCMC
         if n_threads > 1:
@@ -421,9 +402,9 @@ class Runner(object):
         if n_out is not None:
             msg = "Iter. <log like>   "
             i = 0
-            for row in self.initials:
-                if not row['fixed']:
-                    msg += " {0:12s}".format('<' + row['name'] + '>')
+            for name, parameter in self.parameters.items():
+                if not parameter.fixed:
+                    msg += " {0:12s}".format('<' + name + '>')
                     i += 1
             logger.info(msg)
 
@@ -436,8 +417,8 @@ class Runner(object):
             if n_out is not None:
                 output = " {0:4d} {1:12.5e}".format(sampler.iteration, np.mean(lnp[:]))
                 i = 0
-                for row in self.initials:
-                    if not row['fixed']:
+                for parameter in self.parameters.values():
+                    if not parameter.fixed:
                         output += " {0:12.5e}".format(np.mean(pos[-n_out:-1, i]))
                         i += 1
 
@@ -613,14 +594,14 @@ class Runner(object):
         results.add_index('value')
 
         i = 0
-        for row in self.initials:
-            if row['fixed']:
+        for name, parameter in self.parameters.items():
+            if parameter.fixed:
                 continue
             else:
-                results.add_column(QTable.Column([percentiles[1, i],
-                                                  percentiles[2, i] - percentiles[1, i],
-                                                  percentiles[1, i] - percentiles[0, i]]*row['init'].unit,
-                                                 name=row['name']))
+                col = QTable.Column(
+                    [percentiles[1, i], percentiles[2, i] - percentiles[1, i], percentiles[1, i] - percentiles[0, i]],
+                    name=name, unit=parameter.unit)
+                results.add_column(col)
                 i += 1
 
         # mapper = map(lambda p: (p[1], p[2] - p[1], p[1] - p[0]), zip(*percentiles))
@@ -636,9 +617,9 @@ class Runner(object):
         """
         # recover parameters that have been fitted and their labels
         labels = []
-        for row in self.initials:
-            if not row['fixed']:
-                labels.append(self.parameter_labels[row['name']])
+        for name, parameter in self.parameters.items():
+            if not parameter.fixed:
+                labels.append(parameter.label)
         return labels
 
     def plot_chain(self, chain, filename='chains.png', true_values=None, figure=None, lnprob=None, plot_median=False):
@@ -668,6 +649,8 @@ class Runner(object):
             the chain. If provided, they are used to color-code the chains
             according to their likelihoods. Its shape must match that of the
             last two axes of the chain.
+        plot_median : bool, optional
+            Overplot median of each distribution?
 
         Returns
         -------
@@ -707,7 +690,7 @@ class Runner(object):
                 norm = plt.Normalize(vmin, vmax)
                 lc = LineCollection(segments, cmap='viridis', norm=norm)
                 lc.set_array(lnprob[:, 1:].T.flatten())
-                line = axes[i].add_collection(lc)
+                _ = axes[i].add_collection(lc)
             axes[i].set_ylim(samples[..., i].min(), samples[..., i].max())
             axes[i].yaxis.set_major_locator(MaxNLocator(5))
             
@@ -812,6 +795,6 @@ class Runner(object):
 
         parameters = []
         for parameters_i in _parameters[indices]:
-            parameters.append(self.fetch_parameters(parameters_i))
+            parameters.append(self.fetch_parameter_values(parameters_i))
 
         return parameters

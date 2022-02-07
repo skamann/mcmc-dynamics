@@ -1,0 +1,13 @@
+{
+  "unique_symbols": {
+    "rng_seed": null
+  },
+  "params": [
+    ["v_sys", null, "km/s", false, -Infinity, Infinity, "$v_{\\rm sys}$", "rng.normal(size=n)", null, null],
+    ["sigma_max", null, "km/s", false, 0.0, Infinity, "$\\sigma_{\\rm max}$", "rng.lognormal(size=n)", null, null],
+    ["a", null, "arcsec", false, 0.0, Infinity, "$a$","rng.lognormal(size=n)", null, null],
+    ["v_maxx", null, "km/s", false, -Infinity, Infinity, "$v_{\\rm max,\\,x}$", "rng.normal(size=n)", null, null],
+    ["v_maxy", null, "km/s", false, -Infinity, Infinity, "$v_{\\rm max,\\,y}$", "rng.normal(size=n)", null, null],
+    ["r_peak", null, "arcsec", false, 0.0, Infinity, "$r_{\\rm peak}$", "rng.lognormal(size=n)", null, null]
+  ]
+}

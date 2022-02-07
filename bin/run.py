@@ -17,6 +17,8 @@ from mcmc_dynamics.analysis import ModelFit, ConstantFit
 from mcmc_dynamics.analysis.runner import Runner
 from mcmc_dynamics.analysis.cjam import Axisymmetric, AnalyticalProfiles
 from mcmc_dynamics.background import SingleStars
+from mcmc_dynamics.parameter import Parameters
+from mcmc_dynamics.utils.coordinates import calc_xy_offset
 from mcmc_dynamics.utils.plots import ProfilePlot
 from mcmc_dynamics.utils.files import DataReader, MgeReader, get_nearest_neigbhbour_idx2
 
@@ -56,7 +58,7 @@ def get_mge_grid(filename, load=False):
         if not os.path.exists(name): 
             mge.write(name, format='ascii.ecsv')
         
-        files[(x,y)] = name
+        files[(x, y)] = name
         
         if load:
             mge['q'] = 0.9
@@ -76,11 +78,19 @@ def get_mge_grid(filename, load=False):
         return files
 
 
-def get_observed_data(filename, v_sys):
+def get_observed_data(filename, v_sys, ra=None, dec=None):
     params = pd.read_csv(filename)
-    #params = params[params['Membership'] > 0.7]
+    # params = params[params['Membership'] > 0.7]
 
     logging.info('Assuming mean velocity of {}'.format(v_sys))
+
+    if 'x' not in params.columns or 'y' not in params.columns:
+        if 'RA' in params.columns and 'Decl' in params.columns and ra is not None and dec is not None:
+            x, y = calc_xy_offset(params['RA'], params['Decl'], ra_center=ra, dec_center=dec)
+            params['x'] = x
+            params['y'] = y
+    else:
+        logging.critical('Missing offsets to cluster centre in input data.')
 
     data_dict = {
         'x': params['x'].values * u.arcmin,
@@ -92,6 +102,7 @@ def get_observed_data(filename, v_sys):
     data = DataReader(data_dict)
 
     return params, data
+
 
 def plot_radial_profiles(radial_model, radial_profile, run_number=None, filename=None):
     pp = ProfilePlot()
@@ -122,8 +133,6 @@ def plot_radial_profiles(radial_model, radial_profile, run_number=None, filename
                                     radial_model['sigma_upper_1s'] - radial_model['sigma']],
                               ls='-', lw=1.6, c='g', alpha=0.5, marker='None', fill_between=True)
 
-
-
     # pp.add_rotation_profile(r_true.value, v_rot_true, ls='-', lw=1.5, c='k', marker='None')
     # pp.add_dispersion_profile(r_true.value, sigma_true, ls='-', lw=1.5, c='k', marker='None')
 
@@ -134,7 +143,7 @@ def plot_radial_profiles(radial_model, radial_profile, run_number=None, filename
     plt.savefig(_filename)
     
 
-def generate_radial_data(data, background, initials, run_number, deltas_x=(0,), deltas_y=(0,)): 
+def generate_radial_data(data, background, parameters, run_number, deltas_x=(0,), deltas_y=(0,)):
     members = data
     members.make_radial_bins(nstars=500, dlogr=0.2)
 
@@ -142,26 +151,26 @@ def generate_radial_data(data, background, initials, run_number, deltas_x=(0,), 
     radial_profile = QTable()
     for column in ['r mean', 'r min', 'r max']:
         radial_profile[column] = QTable.Column([], unit=members.data['r'].unit)
-    for parameter in initials:
-        if not parameter['fixed']:
+    for name, parameter in parameters.items():
+        if not parameter.fixed:
             for column in ['median', 'high', 'low']:
-                radial_profile['{0} {1}'.format(parameter['name'], column)] = QTable.Column(
-                    [], unit=parameter['init'].unit)
+                radial_profile['{0} {1}'.format(name, column)] = QTable.Column([], unit=parameter.unit)
                 
     if 'v_maxx median' in radial_profile.columns and 'v_maxy median' in radial_profile.columns:
         for column in ['median', 'high', 'low']:
             radial_profile['{0} {1}'.format('v_max', column)] = QTable.Column([], unit=u.km/u.s)
         for column in ['median', 'high', 'low']:
             radial_profile['{0} {1}'.format('theta_0', column)] = QTable.Column([], unit=u.rad)
-    #radial_profile['delta_x'] = QTable.Column([], unit=u.arcsec)
-    #radial_profile['delta_y'] = QTable.Column([], unit=u.arcsec)
+    # radial_profile['delta_x'] = QTable.Column([], unit=u.arcsec)
+    # radial_profile['delta_y'] = QTable.Column([], unit=u.arcsec)
     
     table = []
     samples = []
  
     for offi, (delta_x, delta_y) in enumerate(zip(deltas_x, deltas_y)):
         logging.info("#################---------------------------------------------------######################")
-        logging.info("Using offsets {} of {}. delta_x: {:.3f}, delta_y: {:.3f}".format(offi+1, len(deltas_x), delta_x, delta_y))
+        logging.info("Using offsets {} of {}. delta_x: {:.3f}, delta_y: {:.3f}".format(
+            offi+1, len(deltas_x), delta_x, delta_y))
         logging.info("#################---------------------------------------------------######################")
         
         members.apply_offset(delta_x, delta_y)    
@@ -170,16 +179,16 @@ def generate_radial_data(data, background, initials, run_number, deltas_x=(0,), 
         for i in range(members.data['bin'].max() + 1):
             
             data_i = members.fetch_radial_bin(i)
-            #data_i.data.write("binned_{}_{}.csv".format(run_number, i), format='ascii.ecsv', overwrite=True)
+            # data_i.data.write("binned_{}_{}.csv".format(run_number, i), format='ascii.ecsv', overwrite=True)
             
             results_i = [data_i.data['r'].mean(), data_i.data['r'].min(), data_i.data['r'].max()]
             
-            cf = ConstantFit(data_i, initials=initials, background=background)
+            cf = ConstantFit(data_i, parameters=parameters, background=background)
             sampler = cf(n_walkers=16, n_steps=300)
 
             results = cf.compute_bestfit_values(chain=sampler.chain, n_burn=100)
             theta_vmax, vmax, theta, sigmas = cf.compute_theta_vmax(chain=sampler.chain, n_burn=100,
-                                                            return_samples=True)
+                                                                    return_samples=True)
             
             samples_df = pd.DataFrame({'theta': theta, 'vmax': vmax, 'sigma': sigmas})            
             samples_df['delta_x'] = delta_x
@@ -214,7 +223,7 @@ def generate_radial_data(data, background, initials, run_number, deltas_x=(0,), 
                    'theta_0 low':      theta_vmax.loc['loerr']['theta_0'],
                    }
             rowvalues = {}
-            for k,v in row.items():
+            for k, v in row.items():
                 try:
                     rowvalues[k] = v.value
                 except AttributeError:
@@ -223,19 +232,18 @@ def generate_radial_data(data, background, initials, run_number, deltas_x=(0,), 
             table.append(rowvalues)
                 
             k = 0
-            for parameter in cf.initials:
-                if parameter['fixed']:
+            for name, parameter in cf.parameters.items():
+                if parameter.fixed:
                     continue
-                name = parameter['name']
                 results_i.extend([results.loc['median'][name], results.loc['uperr'][name], results.loc['loerr'][name]])
                 k += 1
 
             if theta_vmax is not None:
                 for name in ['v_max', 'theta_0']:
                     results_i.extend(
-                        [theta_vmax.loc['median'][name], theta_vmax.loc['uperr'][name], theta_vmax.loc['loerr'][name]])#, delta_x, delta_y])
+                        [theta_vmax.loc['median'][name], theta_vmax.loc['uperr'][name], theta_vmax.loc['loerr'][name]])
                     
-            #print(results_i)
+            # print(results_i)
             radial_profile.add_row(results_i)
         
         members.apply_offset(-delta_x, -delta_y)    
@@ -251,14 +259,17 @@ def generate_radial_data(data, background, initials, run_number, deltas_x=(0,), 
     return radial_profile
 
 
-def make_radial_plots(runner, chain, data, background, initials, run_number, n_burn, radial_model=None, radial_profile=None):
+def make_radial_plots(runner, chain, data, background, parameters, run_number, n_burn, radial_model=None,
+                      radial_profile=None):
     if radial_model is None:
-        radial_model = runner.create_profiles(chain, n_burn=n_burn, n_threads=12, n_samples=100, filename="radial_profiles_{}.csv".format(run_number))
+        radial_model = runner.create_profiles(chain, n_burn=n_burn, n_threads=12, n_samples=100,
+                                              filename="radial_profiles_{}.csv".format(run_number))
     if radial_profile is None:
-        radial_profile = generate_radial_data(chain, data, background, initials, run_number, n_burn)
+        radial_profile = generate_radial_data(chain, data, background, parameters, run_number, n_burn)
     
     plot_radial_profiles(radial_model=radial_model, radial_profile=radial_profile, run_number=run_number)
     
+
 def make_mlr_plot(runner, chain, n_burn, n_samples=128):
     axisym = runner
     
@@ -304,29 +315,32 @@ def make_mlr_plot(runner, chain, n_burn, n_samples=128):
     logging.info('cluster mass 16% {}, 50% {}, 84% {}'.format(lolim, median, uplim))
     logging.info('Cluster mass: {0} + {1} - {2} M_sun'.format(median, uplim - median, median - lolim))
 
-    #r_mge = np.logspace(-0.1, 2, 200)*u.arcsec
-    #mlr_profiles = [axisym.calculate_mlr_profile(p['mlr'], radii=r_mge)[1] for p in samples]
+    # r_mge = np.logspace(-0.1, 2, 200)*u.arcsec
+    # mlr_profiles = [axisym.calculate_mlr_profile(p['mlr'], radii=r_mge)[1] for p in samples]
     
     lolim, median, uplim = np.percentile(mlr_profiles, [16, 50, 84], axis=0)
 
-    plt.style.use('sciencepaper')
-    fig, ax = plt.subplots(1,1, figsize=(4, 3))
+    if "sciencepaper" in plt.style.available:
+        plt.style.use("sciencepaper")
+    fig, ax = plt.subplots(1, 1, figsize=(4, 3))
 
     color_label = "#333333"
     # core and half-light radius
     ax.axvline(x=(0.15*u.arcmin).to(u.arcsec).value, ls='-', lw=1, c=color_label, zorder=100)
     ax.axvline(x=(0.61*u.arcmin).to(u.arcsec).value, ls='-', lw=1, c=color_label, zorder=100)
     
-    ax.text((0.15*u.arcmin).to(u.arcsec).value-0.1, 4-0.25, 'core radius', rotation=90,  horizontalalignment='right', fontdict={'color': color_label})
-    ax.text((0.61*u.arcmin).to(u.arcsec).value-1, 4-0.25, 'half-light radius', rotation=90,  horizontalalignment='right', fontdict={'color': color_label})
+    ax.text((0.15*u.arcmin).to(u.arcsec).value-0.1, 4-0.25, 'core radius', rotation=90,  horizontalalignment='right',
+            fontdict={'color': color_label})
+    ax.text((0.61*u.arcmin).to(u.arcsec).value-1, 4-0.25, 'half-light radius', rotation=90, horizontalalignment='right',
+            fontdict={'color': color_label})
 
     lw = 1
-    #for p in mlr_profiles:
-    #    ax.plot(r_mge, p, ls='-', lw=lw, c='#AAAAAA', alpha=0.2)
+    # for p in mlr_profiles:
+    #     ax.plot(r_mge, p, ls='-', lw=lw, c='#AAAAAA', alpha=0.2)
     
     ax.plot(r_mge, median, ls='-', lw=1.5*lw, c='#424874', alpha=1)
-    #ax.plot(r_mge, lolim, ls='-', lw=1.5*lw, c='#424874', alpha=1)    
-    #ax.plot(r_mge, uplim, ls='-', lw=1.5*lw, c='#424874', alpha=1)    
+    # ax.plot(r_mge, lolim, ls='-', lw=1.5*lw, c='#424874', alpha=1)
+    # ax.plot(r_mge, uplim, ls='-', lw=1.5*lw, c='#424874', alpha=1)
     ax.fill_between(r_mge, lolim, uplim, facecolor='#424874', alpha=0.5)
     lolim2, uplim2 = np.percentile(mlr_profiles, [4.55, 95.45], axis=0)
     lolim3, uplim3 = np.percentile(mlr_profiles, [0.27, 99.7], axis=0)
@@ -340,14 +354,15 @@ def make_mlr_plot(runner, chain, n_burn, n_samples=128):
 
     fig.tight_layout()
     fig.savefig('ngc6093_mlr_profile.pdf', bbox_inches='tight')
-    
+
+
 def plot_kappas(runner, chain):
-    bins = 20 #np.arange(-1, 1, 0.05)
+    bins = 20  # np.arange(-1, 1, 0.05)
     
     kappas = []
     rkappas = []
     for walker in chain:
-        p, rk = runner.fetch_parameters(walker[-1], return_rkappa=True)
+        p, rk = runner.fetch_parameter_values(walker[-1], return_rkappa=True)
         k = p["kappa"]
 
         rkappas.append(rk.value)
@@ -356,8 +371,8 @@ def plot_kappas(runner, chain):
     kappas = np.vstack(kappas)
     rkappas = np.asarray(rkappas)
     
-    fig, subs = plt.subplots(nrows=len(k), ncols=1, figsize=(6,12), sharex=True)
-    figc, subc = plt.subplots(1,1, figsize=(6,6))
+    fig, subs = plt.subplots(nrows=len(k), ncols=1, figsize=(6, 12), sharex=True)
+    figc, subc = plt.subplots(1, 1, figsize=(6, 6))
     
     print("comp.\tmin\tmax\tmedian")
     row = "{}\t{:.2f}\t{:.2f}\t{:.2f}"
@@ -372,6 +387,7 @@ def plot_kappas(runner, chain):
         sub.legend(loc="upper left")
     fig.savefig("kappas.pdf")
     figc.savefig("corr_kappa.pdf")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -405,26 +421,28 @@ if __name__ == "__main__":
         pos = Runner.read_final_chain(args.chain)
         chain = Runner.read_chain(args.chain)
 
-    params, data = get_observed_data(config['filename_params'], config['v_sys']*u.km/u.s)
+    ra = config["ra"] if "ra" in config.keys() else None
+    dec = config["dec"] if "dec" in config.keys() else None
+    params, data = get_observed_data(config['filename_params'], config['v_sys']*u.km/u.s, ra=ra, dec=dec)
     
     mge_filename = config['filename_mge']
     try:
         mge_files = get_mge_grid(mge_filename, load=False)
-        mge_lum, mge_mass, mge_coords = None, None, None
+        mge_lum, mge_mass = None, None
     except KeyError:
         mge_lum, mge_mass = get_mge(mge_filename)
-        mge_coords, mge_files = None, None
+        mge_files = None
 
     # rotation angle determined with get_simple_rotation.py
     # data = data.rotate(config['theta_0'])
 
-    initials = json.load(open(config['filename_initials']))['parameters']
+    parameters = Parameters().load(open(config['filename_initials']))
     background_data = table.Table.read(config['filename_background'], format='ascii.commented_header',
                                        guess=False, header_start=96)
     background = SingleStars(v=background_data['Vr']*u.km/u.s - config['v_sys']*u.km/u.s)
 
-    axisym = AnalyticalProfiles(data, mge_mass=mge_mass, mge_lum=mge_lum, mge_coords=mge_coords, mge_files=mge_files,
-                                initials=initials, background=background, seed=config['seed'])
+    axisym = AnalyticalProfiles(data, mge_mass=mge_mass, mge_lum=mge_lum, mge_files=mge_files,
+                                parameters=parameters, background=background, seed=config['seed'])
 
     if not args.plot:
         logging.info('Starting to run MCMC chain ...')
@@ -440,7 +458,7 @@ if __name__ == "__main__":
             lnprob_file = args.lnprob_file
             _lnprob = axisym.read_chain(lnprob_file)
         except FileNotFoundError:
-            logging.warn('No file with lnprobs found', lnprob_file)
+            logging.warning('No file with lnprobs found', lnprob_file)
             _lnprob = None
 
     _lnprob = _lnprob if args.chain else sampler.lnprobability 
@@ -450,43 +468,47 @@ if __name__ == "__main__":
     
     # plot_kappas(axisym, current_chain)
     # logging.info("Plotted kappas.")
-    
-    
 
     try:
         logging.info('Creating corner plot ...')
-        axisym.create_triangle_plot(current_chain, n_burn=config['n_burn'], filename='cjam_corner_{}.png'.format(run_number), quantiles=[0.16,0.5, 0.84], show_titles=True)
+        axisym.create_triangle_plot(
+            current_chain, n_burn=config['n_burn'], filename='cjam_corner_{}.png'.format(run_number),
+            quantiles=[0.16, 0.5, 0.84], show_titles=True)
     except Exception as e:
         logging.warning(e)
 
-    #logging.info('Creating profile plots ... ')
-    #make_radial_plots(runner=axisym, chain=current_chain, data=data, background=background, initials=initials, run_number=run_number, n_burn=config['n_burn'])
+    # logging.info('Creating profile plots ... ')
+    # make_radial_plots(runner=axisym, chain=current_chain, data=data, background=background, initials=initials,
+    # run_number=run_number, n_burn=config['n_burn'])
     
     make_mlr_plot(axisym, current_chain, config['n_burn'])
     logging.info("Plotted M/L profile.")
-    #assert False
-    initials = [{'name': 'v_sys', 'init': 0 * u.km/u.s, 'fixed': True},
-                {'name': 'sigma_max', 'init': config['sigma_max'] * u.km/u.s, 'fixed': False},
-                {'name': 'v_maxx', 'init': config['v_maxx'] * u.km/u.s, 'fixed': False},
-                {'name': 'v_maxy', 'init': config['v_maxy'] * u.km/u.s, 'fixed': False}]
+    # assert False
+    parameters = Parameters()
+    parameters.add(name="v_sys", value=0 * u.km/u.s, fixed=True)
+    parameters.add(name="sigma_max", value=config["sigma_max"] * u.km/u.s, fixed=False, min=0,
+                   initials="sigma_max*rng.lognormal(size=n)")
+    parameters.add(name="v_maxx", value=config["v_maxx"] * u.km/u.s, fixed=False)
+    parameters.add(name="v_maxy", value=config["v_maxy"] * u.km/u.s, fixed=False)
 
-    
     if args.datafile is not None:
         radial_profile = table.QTable.read(args.datafile, format='ascii.ecsv')
     else:
         logging.info("Generating binned data ...")
-        parameters = axisym.sample_chain(current_chain, n_burn=config['n_burn'], n_samples=100)
-        delta_x = (np.median([p["delta_x"].value for p in parameters]) * parameters[0]["delta_x"].unit, )
-        delta_y = (np.median([p["delta_y"].value for p in parameters]) * parameters[0]["delta_y"].unit, )
+        parameter_samples = axisym.sample_chain(current_chain, n_burn=config['n_burn'], n_samples=100)
+        delta_x = (np.median([p["delta_x"].value for p in parameter_samples]) * parameter_samples[0]["delta_x"].unit,)
+        delta_y = (np.median([p["delta_y"].value for p in parameter_samples]) * parameter_samples[0]["delta_y"].unit,)
         
         if args.allcentres:   
-            delta_x = [p["delta_x"] for p in parameters]
-            delta_y = [p["delta_y"] for p in parameters]
+            delta_x = [p["delta_x"] for p in parameter_samples]
+            delta_y = [p["delta_y"] for p in parameter_samples]
         else:
             logging.info("Using only median centre offset.")        
-            logging.info("Accounting for shift in centre: deltax = {:.2f}, delta_y = {:.2f}".format(delta_x[0], delta_y[0]))
+            logging.info("Accounting for shift in centre: deltax = {:.2f}, delta_y = {:.2f}".format(
+                delta_x[0], delta_y[0]))
 
-        radial_profile = generate_radial_data(data, background, initials, run_number, deltas_x=delta_x, deltas_y=delta_y)
+        radial_profile = generate_radial_data(data, background, parameters, run_number, deltas_x=delta_x,
+                                              deltas_y=delta_y)
     
     if args.modelfile is not None:
         logging.info("Reading model file {}".format(args.modelfile))
@@ -496,7 +518,5 @@ if __name__ == "__main__":
         radial_model = axisym.create_profiles(current_chain, n_burn=config['n_burn'], n_threads=50, n_samples=100,
                                               filename="radial_profiles_{}.csv".format(run_number))       
 
-        
     logging.info("Plotting profiles ...")
     plot_radial_profiles(radial_model=radial_model, radial_profile=radial_profile, run_number=run_number)
-    

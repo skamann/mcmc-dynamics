@@ -1,5 +1,6 @@
 import logging
 import numpy as np
+import warnings
 from astropy import units as u
 from astropy.table import QTable
 from astropy import table
@@ -122,12 +123,16 @@ class MgeReader(object):
             mge += row['i']*np.exp((x**2 + y**2/row['q']**2)/(-2.*row['s']**2))
 
         return mge
-    
+
+
 def get_mge(filename):
     # read in the tracer density MGE from the example and add appropriate units
     _mge = table.Table.read(filename, format='ascii.ecsv')
 
-    _mge['q'] = 0.9
+    # if no axis ratios are provided, assume circularity and trigger warning
+    if "q" not in _mge.columns:
+        warnings.warn("No axis ratios provided for MGE components in '{0}'. Assuming q=1.".format(filename))
+        _mge['q'] = 1.0
 
     mge_lum = MgeReader(_mge, lum=True)
 
@@ -138,18 +143,19 @@ def get_mge(filename):
     
     
 def _get_dist(x, y, _x, _y):
-    return np.sqrt( (x - _x)**2 + (y - _y)**2 )
-    
+    return np.sqrt((x - _x)**2 + (y - _y)**2)
+
+
 def get_nearest_neigbhbour_idx(x, y, coords):
     dists = np.asarray([_get_dist(x, y, _x, _y,) for (_x, _y) in coords])
     return dists.argmin()
+
 
 def get_nearest_neigbhbour_idx2(x, y, coords_dict):
     dists = {}
     for offset, filename in coords_dict.items():
         dists[offset] = _get_dist(x, y, offset[0], offset[1])
     min_coord = min(dists, key=dists.get)
-    #min_coord = [k for k, v in dists.items() if v == min_dist][0]
+    # min_coord = [k for k, v in dists.items() if v == min_dist][0]
     
     return min_coord
-    

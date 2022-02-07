@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from astropy import units as u
 from astropy.table import QTable
+
 from mcmc_dynamics.analysis import ModelFit, ConstantFit
 from mcmc_dynamics.utils.plots import ProfilePlot
 from mcmc_dynamics.utils.files import DataReader
@@ -16,15 +17,15 @@ logger = logging.getLogger(__name__)
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description='Test MCMC code using mock data created on-the-fly.')
-    parser.add_argument('-n', '--nstars', type=int, default=300, help='The number of mock stars.')
-    parser.add_argument('-r', '--rmax', type=float, default=1.0, help='Maximum data radius relative to scale radius.')
+    parser.add_argument('-n', '--nstars', type=int, default=500, help='The number of mock stars.')
+    parser.add_argument('-r', '--rmax', type=float, default=5.0, help='Maximum data radius relative to scale radius.')
     parser.add_argument('--vsigma', type=float, default=0.5, help='Ratio between max. rotation and dispersion.')
     parser.add_argument('--errscale', type=float, default=0.1, help='Ratio between avg. uncertainty and dispersion.')
     parser.add_argument('-s', '--seed', type=int, default=None, help='Seed to initialize random-number generator.')
 
     args = parser.parse_args()
 
-    # logger.setLevel(logging.INFO)
+    # DATA CREATION
     logging.basicConfig(level=logging.INFO)
     logger.info('Creating input data ...')
     np.random.seed(args.seed)
@@ -56,71 +57,85 @@ if __name__ == "__main__":
     data.data['verr'] = uncertainties
     logger.info(data.data)
 
+    # FIT IN RADIAL BINS
     logger.info('Analysing kinematics in radial bins ...')
     data.make_radial_bins(nstars=50, dlogr=0.1)
 
-    initials = [{'name': 'v_sys', 'init': v_sys, 'fixed': True},
-                {'name': 'sigma_max', 'init': sigma_max, 'fixed': False},
-                {'name': 'v_maxx', 'init': 0.5*v_max, 'fixed': False},
-                {'name': 'v_maxy', 'init': 0.5*v_max, 'fixed': False}]
-
-    # create table for storing results from analysis in radial bins
-    radial_profile = QTable()
-    for column in ['r mean', 'r min', 'r max']:
-        radial_profile[column] = QTable.Column([], unit=data.data['r'].unit)
-    for parameter in initials:
-        if not parameter['fixed']:
-            for column in ['median', 'high', 'low']:
-                radial_profile['{0} {1}'.format(parameter['name'], column)] = QTable.Column(
-                    [], unit=parameter['init'].unit)
-    for parameter_name, parameter_unit in {'v_max': u.km/u.s, 'theta_0': u.rad}.items():
-        for column in ['median', 'high', 'low']:
-            radial_profile['{0} {1}'.format(parameter_name, column)] = QTable.Column([], unit=parameter_unit)
+    # prepare container for storing results from analysis in radial bins
+    radial_bins = []
+    column_names = ('r mean', 'r min', 'r max')
 
     for i in range(data.data['bin'].max() + 1):
         data_i = data.fetch_radial_bin(i)
 
-        results_i = [data_i.data['r'].mean(), data_i.data['r'].min(), data_i.data['r'].max()]
+        # initialize sampler
+        cf = ConstantFit(data_i, parameters=None, background=None)
 
-        cf = ConstantFit(data_i, initials=initials, background=None)
-        sampler = cf(n_walkers=100, n_steps=100)
+        # modify function for creating initials for chains
+        cf.parameters['sigma_max'].set(initials='rng.lognormal(mean={0:.2f}, sigma=0.5, size=n)'.format(np.log(10.)))
+        cf.parameters['v_maxx'].set(initials='rng.normal(loc=0, scale=3, size=n)')
+        cf.parameters['v_maxy'].set(initials='rng.normal(loc=0, scale=3, size=n)')
 
-        results = cf.compute_bestfit_values(chain=sampler.chain, n_burn=50)
+        if i == 0:
+            cf.parameters.pretty_print()
+        sampler = cf(n_walkers=100, n_steps=100, n_threads=1)
+        # _ = cf.plot_chain(chain=sampler.chain)
+        # _ = cf.create_triangle_plot(chain=sampler.chain, n_burn=50)
+        # plt.show()
 
-        k = 0
-        for parameter in cf.initials:
-            if parameter['fixed']:
+        results_i = (data_i.data['r'].mean(), data_i.data['r'].min(), data_i.data['r'].max())
+
+        bestfit_values = cf.compute_bestfit_values(chain=sampler.chain, n_burn=50)
+        for name, parameter in cf.parameters.items():
+            if parameter.fixed:
                 continue
-            name = parameter['name']
-            results_i.extend([results.loc['median'][name], results.loc['uperr'][name], results.loc['loerr'][name]])
-            k += 1
+            results_i = results_i + (bestfit_values.loc['median'][name],
+                                     bestfit_values.loc['uperr'][name],
+                                     bestfit_values.loc['loerr'][name])
+            if i == 0:
+                column_names = column_names + (name + ' median', name + ' high', name + ' low')
 
         theta_vmax = cf.compute_theta_vmax(chain=sampler.chain, n_burn=50)
         if theta_vmax is not None:
             for name in ['v_max', 'theta_0']:
-                results_i.extend(
-                    [theta_vmax.loc['median'][name], theta_vmax.loc['uperr'][name], theta_vmax.loc['loerr'][name]])
+                results_i = results_i + (theta_vmax.loc['median'][name],
+                                         theta_vmax.loc['uperr'][name],
+                                         theta_vmax.loc['loerr'][name])
+                if i == 0:
+                    column_names = column_names + (name + ' median', name + ' high', name + ' low')
 
-        radial_profile.add_row(results_i)
+        radial_bins.append(results_i)
 
-    radial_profile = QTable(radial_profile)
+    radial_profile = QTable(rows=radial_bins, names=column_names)
+    print(radial_profile)
 
+    # MODEL FIT
     logger.info('Fitting radial model to data ...')
+    mf = ModelFit(data=data, parameters=None)
 
-    initials = [{'name': 'v_sys', 'init': v_sys, 'fixed': False},
-                {'name': 'sigma_max', 'init': sigma_max, 'fixed': False},
-                {'name': 'a', 'init': a, 'fixed': False},
-                {'name': 'v_maxx', 'init': 0.5*v_max, 'fixed': False},
-                {'name': 'v_maxy', 'init': 0.5*v_max, 'fixed': False},
-                {'name': 'r_peak', 'init': r_peak, 'fixed': False}]
+    # modify initials for some parameters. Radii are initialized using beta-function between min and max radius covered
+    # by data
+    r_min = data.data['r'].min()
+    r_max = data.data['r'].max()
+    mf.parameters['sigma_max'].set(initials='rng.lognormal(mean={0:.2f}, sigma=0.5, size=n)'.format(np.log(10.)))
+    mf.parameters['a'].set(
+        min=r_min, max=r_max, initials='{0}*rng.beta(a=2, b=5, size=n) + {1}'.format((r_max-r_min).value, r_min.value))
+    mf.parameters['v_maxx'].set(initials='rng.normal(loc=0, scale=3, size=n)')
+    mf.parameters['v_maxy'].set(initials='rng.normal(loc=0, scale=3, size=n)')
+    mf.parameters['r_peak'].set(
+        min=r_min, max=r_max, initials='{0}*rng.beta(a=2, b=5, size=n) + {1}'.format((r_max-r_min).value, r_min.value))
+    mf.parameters.pretty_print()
 
-    mf = ModelFit(data=data, initials=initials)
-    sampler = mf()
+    # run model calculation
+    sampler = mf(n_threads=1)
 
-    _ = mf.plot_chain(chain=sampler.chain, lnprob=sampler.lnprobability)
+    # _ = mf.plot_chain(chain=sampler.chain, lnprob=sampler.lnprobability)
+    # _ = mf.create_triangle_plot(chain=sampler.chain, n_burn=100)
+    # plt.show()
 
-    radial_model = mf.create_profiles(sampler.chain, n_burn=50)
+    radial_model = mf.create_profiles(sampler.chain, n_burn=100)
 
+    # PLOTTING
     logger.info('Plotting the results ...')
 
     r_true = np.logspace(-1, 2, 50)*u.arcsec
@@ -158,5 +173,6 @@ if __name__ == "__main__":
 
     pp.add_rotation_profile(r_true.value, v_rot_true, ls='-', lw=1.5, c='k', marker='None')
     pp.add_dispersion_profile(r_true.value, sigma_true, ls='-', lw=1.5, c='k', marker='None')
+    pp.add_theta_profile(r_true.value, theta_0*np.ones_like(r_true.value), ls='-', lw=1.5, c='k', marker='None')
 
     plt.show()
