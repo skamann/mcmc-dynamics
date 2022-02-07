@@ -514,6 +514,34 @@ class Runner(object):
         last = chain[:, -1, :]
         return last
 
+    def convert_to_paramaters(self, chain, n_burn):
+
+        pars = {}
+        n_samples = chain.shape[0]*(chain.shape[1] - n_burn)
+
+        # first check: has the parameter been optimized?
+        for par in self.parameters:
+            if par in self.fitted_parameters:
+                i = self.fitted_parameters.index(par)
+                pars[par] = chain[:, n_burn:, i].flatten()
+
+        # second check: was a fixed value used?
+        for fix_par in [p for p in self.parameters if p not in pars]:
+            if self.parameters[fix_par].expr is None:
+                pars[fix_par] = np.full(n_samples, self.parameters[fix_par].value)
+
+        # third check: is the parameter value determined using an expression?
+        for dep_par in [p for p in self.parameters if p not in pars]:
+            if self.parameters[dep_par].expr is not None:
+                values = np.zeros(n_samples, dtype=np.float64)
+                for n in range(n_samples):
+                    for par in [p for p in pars.keys() if p in self.parameters[dep_par]._expr_deps]:
+                        self.parameters[par].value = pars[par][n]
+                        values[n] = self.parameters[dep_par].value
+                pars[dep_par] = values
+
+        return pars
+
     def compute_percentiles(self, chain, n_burn, pct=None):
         """
         This method determines the requested percentiles of the parameter

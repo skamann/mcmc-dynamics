@@ -7,6 +7,7 @@ from astropy.table import QTable
 from .runner import Runner
 from .. import config
 from ..parameter import Parameters
+from ..utils.coordinates import get_amplitude_and_angle
 
 
 logger = logging.getLogger(__name__)
@@ -143,51 +144,64 @@ class ConstantFit(Runner):
         return self._calculate_lnlike(v_los=v_los, sigma_los=sigma_los)
 
     def compute_theta_vmax(self, chain, n_burn, return_samples=False):
+        """
+        Compute the position angle `theta_0` and the amplitude of the rotation
+        field, `v_max`.
 
-        try:
-            i = self.fitted_parameters.index('v_maxx')
-            j = self.fitted_parameters.index('v_maxy')
-            k = self.fitted_parameters.index('sigma_max')
-        except ValueError:
-            logger.error("'v_maxx' and/or 'v_maxy' missing in list of fitted parameters.")
+        For each set of parameters available in the provided chain (ignoring
+        a using-provided number of steps at the beginning of each walker as
+        burn-in), the code will determine the values of `theta_0` and `v_max`
+        Afterwards, the median and the 16th and 84th percentiles of the
+        distributions thereby obtained are calculated and returned.
+
+        Note that the position angle if measured from north through east and
+        gives the orientation of the rotation axis.
+
+        Parameters
+        ----------
+        chain : ndarray
+            The chain returned by the MCMC analysis. Must be a 3dimensional
+            array with the different walkers as 0th index, the steps as 1st
+            index, and the parameters as 2nd index.
+        n_burn : int, optional
+            The burn-in for each walker that is discarded when calculating
+            the parameter statistics.
+        return_samples : bool, optional
+            Flag indicating if the full sets of calculated `theta_0` and
+            `v_max` values should be returned. By default, only the median
+            and 16th and 84th percentiles of each parameter are returned.
+
+        Returns
+        -------
+        results : instance of astropy.table.QTable
+            For each parameter, the table contains one column, providing the
+            calculated median, 84th, and 16th percentile in three rows.
+        v_max : ndarray
+            The calculated amplitude values for all available parameter sets.
+            Only returned if `return_samples` is set to True.
+        _theta : ndarray
+            The calculated position angle values for all available parameter
+            sets. Only returned if `return_samples` is set to True.
+        sigmas : ndarray
+            The available dispersion values. They are not used in any
+            calculation and only returned for consistency with other methods.
+            Only returned if `return_samples` is set to True.
+        """
+        pars = self.convert_to_paramaters(chain=chain, n_burn=n_burn)
+
+        results, v_max, _theta = get_amplitude_and_angle(pars, return_samples=return_samples)
+
+        if results is None:
+            logger.error('Could not recover paramaters of rotation field in {}.compute_theta_vmax().'.format(
+                self.__class__.__name__))
             return None
+        else:
+            results['v_max'] *= self.units['v_maxx']
 
-        v_maxx = chain[:, n_burn:, i].flatten()
-        v_maxy = chain[:, n_burn:, j].flatten()
-
-        theta = np.arctan2(v_maxy, v_maxx)
-
-        median_theta = np.arctan2(np.median(v_maxy), np.median(v_maxx))
-
-        # make sure median angle is in the centre of the full angle range (i.e. at 0 when range is (-Pi, Pi])
-        _theta = theta - median_theta
-        _theta = np.where(_theta < -np.pi, _theta + 2 * np.pi, _theta)
-        _theta = np.where(_theta > np.pi, _theta - 2 * np.pi, _theta)
-
-        # to obtain v_max, the values of (v_maxx, vmaxy) rotated by -median_theta. That way, one component will be
-        # in direction of median_theta, which we consider as v_max.
-        v_max = v_maxx * np.cos(-median_theta) - v_maxy * np.sin(-median_theta)
-
-        results = QTable(data=[['median', 'uperr', 'loerr']], names=['value'])
-        results.add_index('value')
-
-        for name, values in {'v_max': v_max, 'theta_0': _theta}.items():
-
-            unit = u.rad if name == 'theta_0' else self.units['v_maxx']
-
-            percentiles = np.percentile(values, [16, 50, 84])
-
-            results.add_column(QTable.Column(
-                [percentiles[1], percentiles[2] - percentiles[1], percentiles[1] - percentiles[0]]*unit,
-                name=name))
-
-        results.loc['median']['theta_0'] += median_theta*u.rad
-        
         if return_samples:
-            sigmas = chain[:, n_burn:, k].flatten()
-            return results, v_max, _theta, sigmas
-
-        return results
+            return results, v_max, _theta, pars['sigma']
+        else:
+            return results
 
     # def leastsq(self, **kwargs):
     #     """

@@ -9,6 +9,7 @@ from astropy.table import QTable
 from mcmc_dynamics.analysis import ModelFit, ConstantFit
 from mcmc_dynamics.utils.plots import ProfilePlot
 from mcmc_dynamics.utils.files import DataReader
+from mcmc_dynamics.parameter import Parameter
 
 
 logger = logging.getLogger(__name__)
@@ -44,7 +45,7 @@ if __name__ == "__main__":
         'verr': np.zeros((args.nstars,), dtype=np.float64)*u.km/u.s})
 
     x_pa = data.data['r'] * np.sin(data.data['theta'] - theta_0)
-    v_los = v_sys + 2. * (v_max / r_peak) * x_pa / (1. + (x_pa / r_peak) ** 2)
+    v_los = v_sys + 2. * (v_max / r_peak) * x_pa / (1. + (data.data['r'] / r_peak) ** 2)
 
     sigma_los = sigma_max / (1. + (data.data['r'] / a) ** 2) ** 0.25
     v_los += sigma_los*np.random.randn(args.nstars)
@@ -74,7 +75,8 @@ if __name__ == "__main__":
         # modify function for creating initials for chains
         cf.parameters['sigma_max'].set(initials='rng.lognormal(mean={0:.2f}, sigma=0.5, size=n)'.format(np.log(10.)))
         cf.parameters['v_maxx'].set(initials='rng.normal(loc=0, scale=3, size=n)')
-        cf.parameters['v_maxy'].set(initials='rng.normal(loc=0, scale=3, size=n)')
+        # cf.parameters.add(name='theta_0', value=theta_0, min=0, max=2.*np.pi, fixed=True)
+        cf.parameters['v_maxy'].set(initials='rng.normal(loc=0, scale=3, size=n)')  # , expr="v_maxx*tan(theta_0)")
 
         if i == 0:
             cf.parameters.pretty_print()
@@ -121,7 +123,8 @@ if __name__ == "__main__":
     mf.parameters['a'].set(
         min=r_min, max=r_max, initials='{0}*rng.beta(a=2, b=5, size=n) + {1}'.format((r_max-r_min).value, r_min.value))
     mf.parameters['v_maxx'].set(initials='rng.normal(loc=0, scale=3, size=n)')
-    mf.parameters['v_maxy'].set(initials='rng.normal(loc=0, scale=3, size=n)')
+    # mf.parameters.add(name='theta_0', value=theta_0, min=0, max=2.*np.pi, fixed=True)
+    mf.parameters['v_maxy'].set(initials='rng.normal(loc=0, scale=3, size=n)')  # , expr="v_maxx*tan(theta_0)")
     mf.parameters['r_peak'].set(
         min=r_min, max=r_max, initials='{0}*rng.beta(a=2, b=5, size=n) + {1}'.format((r_max-r_min).value, r_min.value))
     mf.parameters.pretty_print()

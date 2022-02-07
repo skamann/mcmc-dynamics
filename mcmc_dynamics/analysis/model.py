@@ -8,6 +8,8 @@ from astropy.table import Table, QTable
 from .runner import Runner
 from .. import config
 from ..parameter import Parameters
+from ..utils.coordinates import get_amplitude_and_angle
+
 
 logger = logging.getLogger(__name__)
 
@@ -285,49 +287,21 @@ class ModelFit(Runner):
 
     def compute_theta_vmax(self, chain, n_burn, return_samples=False):
 
-        try:
-            i = self.fitted_parameters.index('v_maxx')
-            j = self.fitted_parameters.index('v_maxy')
-            k = self.fitted_parameters.index('sigma_max')
-        except ValueError:
-            logger.error("'v_maxx' and/or 'v_maxy' missing in list of fitted parameters.")
+        pars = self.convert_to_paramaters(chain=chain, n_burn=n_burn)
+
+        results, v_max, _theta = get_amplitude_and_angle(pars, return_samples=return_samples)
+
+        if results is None:
+            logger.error('Could not recover paramaters of rotation field in {}.compute_theta_vmax().'.format(
+                self.__class__.__name__))
             return None
-
-        v_maxx = chain[:, n_burn:, i].flatten()
-        v_maxy = chain[:, n_burn:, j].flatten()
-
-        theta = np.arctan2(v_maxy, v_maxx)
-
-        median_theta = np.arctan2(np.median(v_maxy), np.median(v_maxx))
-
-        # make sure median angle is in the centre of the full angle range (i.e. at 0 when range is (-Pi, Pi])
-        _theta = theta - median_theta
-        _theta = np.where(_theta < -np.pi, _theta + 2 * np.pi, _theta)
-        _theta = np.where(_theta > np.pi, _theta - 2 * np.pi, _theta)
-
-        # to obtain v_max, the values of (v_maxx, vmaxy) rotated by -median_theta. That way, one component will be
-        # in direction of median_theta, which we consider as v_max.
-        v_max = v_maxx * np.cos(-median_theta) - v_maxy * np.sin(-median_theta)
-
-        results = QTable(data=[['median', 'uperr', 'loerr']], names=['value'])
-        results.add_index('value')
-
-        for name, values in {'v_max': v_max, 'theta_0': _theta}.items():
-            unit = u.rad if name == 'theta_0' else self.units['v_maxx']
-
-            percentiles = np.percentile(values, [16, 50, 84])
-
-            results.add_column(QTable.Column(
-                [percentiles[1], percentiles[2] - percentiles[1], percentiles[1] - percentiles[0]] * unit,
-                name=name))
-
-        results.loc['median']['theta_0'] += median_theta * u.rad
+        else:
+            results['v_max'] *= self.units['v_maxx']
 
         if return_samples:
-            sigmas = chain[:, n_burn:, k].flatten()
-            return results, v_max, _theta, sigmas
-
-        return results
+            return results, v_max, _theta, pars['sigma']
+        else:
+            return results
 
 
 class ModelFitGB(ModelFit):

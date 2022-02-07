@@ -36,7 +36,7 @@ class ProfilePlot(object):
             self.ax_theta = figure.axes[1]
             self.ax_disp = figure.axes[2]
 
-        self.ax_rot.set_xscale('log', basex=10)
+        self.ax_rot.set_xscale('log', base=10)
         self.ax_rot.set_xticks(np.logspace(-1, 2, 4))
         self.ax_rot.xaxis.tick_top()
         self.ax_rot.xaxis.set_ticks_position('both')
