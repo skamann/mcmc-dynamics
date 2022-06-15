@@ -20,28 +20,39 @@ class ModelFit(Runner):
     dispersion profile of a cluster using simple analytical models.
 
     The rotation profile is modeled as expected for a system that underwent
-    violent relaxation (e.g. Lynden-Bell 1967, MNRAS, 136, 101). In this case,
-    the radial dependence is given as
+    violent relaxation (e.g., `Lynden-Bell 1967`_). In this
+    case, the radial dependence is given as
 
-    v_rot(r, theta) = V_SYS + 2*(V_MAX/R_PEAK) * x_pa/(1. + (x_pa/R_PEAK)**2),
+    .. math::
+       v_{rot}(r, \\theta) = V_{SYS} + 2(V_{MAX}/R_{PEAK}) \\cdot
+       x_{pa}/(1 + (x_{pa}/R_{PEAK})^2),
 
     where
 
-    x_pa(r, theta) = r * np.sin(theta - THETA_0).
+    .. math::
+       x_{pa}(r, \\theta) = r \\cdot \\sin(\\theta - THETA_0).
 
 
-    The dispersion is modeled as a Plummer (1911, MNRAS, 71, 460) profile with
-    the following functional form,
+    The dispersion is modeled as a `Plummer (1911)`_ profile with the
+    following functional form,
 
-    sigma(r) = SIGMA_0/(1. + r**2 / A**2)**0.25.
-
+    .. math::
+       \\sigma(r) = SIGMA_0/(1 + r^2 / A^2)^{0.25}.
 
     Hence, the model has up to 6 free parameters, V_SYS, V_MAX, R_PEAK,
     THETA_0, SIGMA_0, and A.
 
-    The data required per star are the distance r to the cluster centre, the
-    position angle theta (measured from north counterclockwise), the radial
-    velocity v and the velocity uncertainty epsilon_v.
+    The data required per star are the distance :math:`r` to the cluster
+    centre, the position angle :math:`\\theta` (measured from north counter-
+    clockwise), the radial velocity :math:`v` and the velocity uncertainty
+    :math:`\\epsilon_v`.
+
+    References
+    ----------
+    .. _Lynden-Bell 1967:
+       https://ui.adsabs.harvard.edu/abs/1967MNRAS.136..101L/abstract
+    .. _Plummer (1911):
+       https://ui.adsabs.harvard.edu/abs/1911MNRAS..71..460P/abstract
     """
     MODEL_PARAMETERS = ['v_sys', 'v_maxx', 'v_maxy', 'r_peak', 'sigma_max', 'a']
     OBSERVABLES = {'v': u.km/u.s, 'verr': u.km/u.s, 'r': u.arcsec, 'theta': u.rad}

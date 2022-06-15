@@ -10,7 +10,14 @@ Welcome to MCMC Dynamics's documentation!
    :maxdepth: 2
    :caption: Contents:
 
+   readme
+   changelog
 
+Programmer Reference
+
+.. toctree::
+
+   api
 
 Indices and tables
 ==================
