@@ -148,7 +148,6 @@ class ConstantFit(Runner):
         for parameter, value in self.fetch_parameter_values(values).items():
             if parameter in self.rotation_parameters.keys():
                 kwargs_rotation[parameter] = value
-                # print (kwargs_rotation)
             elif parameter in self.dispersion_parameters.keys():
                 kwargs_dispersion[parameter] = value
             else:
