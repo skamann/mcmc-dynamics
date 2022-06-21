@@ -59,7 +59,7 @@ class ModelFit(Runner):
 
     def __init__(self, data, parameters=None, **kwargs):
         """
-        Initialize a new instance of the ModelFit class.
+        Initialize a new instance of the ModelFit class
 
         Parameters
         ----------
