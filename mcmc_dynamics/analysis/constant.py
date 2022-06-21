@@ -3,6 +3,8 @@ import logging
 import numpy as np
 import importlib.resources as pkg_resources
 from astropy import units as u
+# from mcmc_dynamics.utils import coordinates
+from mcmc_dynamics.utils.files import DataReader
 from astropy.table import QTable
 from .runner import Runner
 from .. import config
@@ -15,8 +17,8 @@ logger = logging.getLogger(__name__)
 
 class ConstantFit(Runner):
 
-    MODEL_PARAMETERS = ['v_sys', 'sigma_max', 'v_maxx', 'v_maxy']
-    OBSERVABLES = {'v': u.km/u.s, 'verr': u.km/u.s, 'theta': u.rad}
+    MODEL_PARAMETERS = ['v_sys', 'sigma_max', 'v_maxx', 'v_maxy', 'dx', 'dy']
+    OBSERVABLES = {'v': u.km/u.s, 'verr': u.km/u.s, 'x': u.arcsec, 'y':u.arcsec}
 
     def __init__(self, data, parameters=None, **kwargs):
         """
@@ -34,7 +36,8 @@ class ConstantFit(Runner):
             the super-class.
         """
         # required observables
-        self.theta = None
+        self.x = None
+        self.y = None
 
         if parameters is None:
             parameters = Parameters().load(pkg_resources.open_text(config, 'constant.json'))
@@ -44,6 +47,20 @@ class ConstantFit(Runner):
         # get parameters required to evaluate rotation and dispersion models
         self.rotation_parameters = inspect.signature(self.rotation_model).parameters
         self.dispersion_parameters = inspect.signature(self.dispersion_model).parameters
+
+    def compute_theta(self, dx, dy):
+        """
+
+        Parameters
+        ----------
+        dx - x offset to the center
+        dy - y offset to the center
+
+        Returns
+        ----------
+        Returns the theta value by including the offsets to the x and y coordinates
+        """
+        return np.arctan2(self.y+dy,self.x+dx)
 
     def dispersion_model(self, sigma_max, **kwargs):
         """
@@ -69,7 +86,7 @@ class ConstantFit(Runner):
 
         return sigma_max*np.ones(self.n_data, dtype=np.float64)
 
-    def rotation_model(self, v_sys, v_maxx, v_maxy, **kwargs):
+    def rotation_model(self, v_sys, v_maxx, v_maxy,dx,dy, **kwargs):
         """
         The method calculates the rotation velocity at the positions of the
         available data points.
@@ -96,9 +113,10 @@ class ConstantFit(Runner):
                 ', '.join(kwargs.keys()), self.__class__.__name__))
 
         v_max = np.sqrt(v_maxx**2 + v_maxy**2)
+        theta = self.compute_theta(dx,dy)
+        # theta_prev = np.arctan2(self.y,self.x)
         theta_0 = np.arctan2(v_maxy, v_maxx)
-        
-        return v_sys + v_max*np.sin(self.theta - theta_0)
+        return v_sys + (v_max)*np.sin(theta  - theta_0)
 
     def lnlike(self, values):
         """
@@ -130,6 +148,7 @@ class ConstantFit(Runner):
         for parameter, value in self.fetch_parameter_values(values).items():
             if parameter in self.rotation_parameters.keys():
                 kwargs_rotation[parameter] = value
+                # print (kwargs_rotation)
             elif parameter in self.dispersion_parameters.keys():
                 kwargs_dispersion[parameter] = value
             else:
