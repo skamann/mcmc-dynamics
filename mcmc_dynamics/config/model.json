@@ -7,6 +7,8 @@
     ["sigma_max", null, "km/s", false, 0.0, Infinity, "$\\sigma_{\\rm max}$", "rng.lognormal(size=n)", null, null, null],
     ["a", null, "arcsec", false, 0.0, Infinity, "$a$","rng.lognormal(size=n)", null, null, null],
     ["v_maxx", null, "km/s", false, -Infinity, Infinity, "$v_{\\rm max,\\,x}$", "rng.normal(size=n)", null, null, null],
+    ["dx", null, "arcsec", false, -Infinity, Infinity, "$dx$", "rng.normal(size=n)", null, null, null],
+    ["dy", null, "arcsec", false, -Infinity, Infinity, "$dy$", "rng.normal(size=n)", null, null, null],
     ["v_maxy", null, "km/s", false, -Infinity, Infinity, "$v_{\\rm max,\\,y}$", "rng.normal(size=n)", null, null, null],
     ["r_peak", null, "arcsec", false, 0.0, Infinity, "$r_{\\rm peak}$", "rng.lognormal(size=n)", null, null, null]
   ]
