@@ -4,6 +4,7 @@ import logging
 import numpy as np
 import importlib.resources as pkg_resources
 from astropy import units as u
+from mcmc_dynamics.utils.files import DataReader
 from astropy.table import Table, QTable
 from .runner import Runner
 from .. import config
@@ -39,12 +40,11 @@ class ModelFit(Runner):
     .. math::
        \\sigma(r) = SIGMA_0/(1 + r^2 / A^2)^{0.25}.
 
-    Hence, the model has up to 6 free parameters, V_SYS, V_MAX, R_PEAK,
-    THETA_0, SIGMA_0, and A.
+    Hence, the model has up to 8 free parameters, V_SYS, V_MAX, R_PEAK,
+    THETA_0, SIGMA_0, DX, DY, and A.
 
-    The data required per star are the distance :math:`r` to the cluster
-    centre, the position angle :math:`\\theta` (measured from north counter-
-    clockwise), the radial velocity :math:`v` and the velocity uncertainty
+    The data required per star are the cartesian coordinates :math:`x` and :math:`y` to the cluster
+    centre, the radial velocity :math:`v` and the velocity uncertainty
     :math:`\\epsilon_v`.
 
     References
@@ -54,8 +54,8 @@ class ModelFit(Runner):
     .. _Plummer (1911):
        https://ui.adsabs.harvard.edu/abs/1911MNRAS..71..460P/abstract
     """
-    MODEL_PARAMETERS = ['v_sys', 'v_maxx', 'v_maxy', 'r_peak', 'sigma_max', 'a']
-    OBSERVABLES = {'v': u.km/u.s, 'verr': u.km/u.s, 'r': u.arcsec, 'theta': u.rad}
+    MODEL_PARAMETERS = ['v_sys', 'v_maxx', 'v_maxy', 'r_peak', 'sigma_max', 'a', 'dx','dy']
+    OBSERVABLES = {'v': u.km/u.s, 'verr': u.km/u.s, 'x': u.arcsec, 'y': u.arcsec}
 
     def __init__(self, data, parameters=None, **kwargs):
         """
@@ -74,8 +74,8 @@ class ModelFit(Runner):
             initialization of the parent class.
         """
         # required observables
-        self.r = None
-        self.theta = None
+        self.x = None
+        self.y = None
 
         if parameters is None:
             parameters = Parameters().load(pkg_resources.open_text(config, 'model.json'))
@@ -86,7 +86,7 @@ class ModelFit(Runner):
         self.rotation_parameters = inspect.signature(self.rotation_model).parameters
         self.dispersion_parameters = inspect.signature(self.dispersion_model).parameters
 
-    def dispersion_model(self, sigma_max, a=1, **kwargs):
+    def dispersion_model(self, sigma_max,dx,dy, a=1, **kwargs):
         """
         The method calculates the line-of-sight velocity dispersion at the
         positions (r, theta) of the available data points.
@@ -115,9 +115,39 @@ class ModelFit(Runner):
             raise IOError('Unknown keyword argument(s) "{0}" for method {1}.dispersion_model.'.format(
                 ', '.join(kwargs.keys()), self.__class__.__name__))
 
-        return sigma_max / (1. + self.r ** 2 / a ** 2) ** 0.25
+        r = self.compute_r(dx,dy)
+        return sigma_max / (1. + (r) ** 2 / a ** 2) ** 0.25
 
-    def rotation_model(self, v_sys, v_maxx, v_maxy, r_peak=None, **kwargs):
+    def compute_theta(self,dx,dy):
+        """
+
+             Parameters
+             ----------
+             dx - x offset to the center
+             dy - y offset to the center
+
+             Returns
+             ----------
+             Returns the theta value after including the offsets to the x and y coordinates
+             """
+        return np.arctan2(self.y + dy, self.x + dx)
+
+    def compute_r(self,dx,dy):
+        """
+
+        Parameters
+        ----------
+        dx - x offset to the center
+        dy - y offset to the center
+
+        Returns
+        -------
+        Returns the radius of the coordinates after including the offsets to the x and y coordinates
+
+        """
+        return np.sqrt((self.x+dx)**2 + (self.y+dy)**2)
+
+    def rotation_model(self, v_sys, v_maxx, v_maxy, dx, dy, r_peak=None, **kwargs):
         """
         The method calculates the line-of-sight velocity at the positions
         (r, theta) of the available data points.
@@ -154,14 +184,15 @@ class ModelFit(Runner):
             raise IOError('Unknown keyword argument(s) "{0}" for method {1}.rotation_model.'.format(
                 ', '.join(kwargs.keys()), self.__class__.__name__))
 
+        r = self.compute_r(dx,dy)
         if r_peak is None:
-            r_peak = np.median(self.r)
+            r_peak = np.median(r)
 
         v_max = np.sqrt(v_maxx**2 + v_maxy**2)
         theta_0 = np.arctan2(v_maxy, v_maxx)
-
-        x_pa = self.r * np.sin(self.theta - theta_0)
-        return v_sys + 2. * (v_max / r_peak) * x_pa / (1. + (self.r / r_peak) ** 2)
+        theta = self.compute_theta(dx,dy)
+        x_pa = r * np.sin(theta - theta_0)
+        return v_sys + 2. * (v_max / r_peak) * x_pa / (1. + (r / r_peak) ** 2)
 
     def lnlike(self, values):
         """
@@ -189,17 +220,17 @@ class ModelFit(Runner):
         # Collect parameters for method calls to evaluate rotation and dispersion models.
         kwargs_rotation = {}
         kwargs_dispersion = {}
-
         for parameter, value in self.fetch_parameter_values(values).items():
             if parameter in self.rotation_parameters.keys():
                 kwargs_rotation[parameter] = value
-            elif parameter in self.dispersion_parameters.keys():
+            if parameter in self.dispersion_parameters.keys():
                 kwargs_dispersion[parameter] = value
             else:
                 continue
                 # logger.warning('Unknown model parameter "{0}" provided.'.format(parameter))
 
         # evaluate functions at positions of measurements
+
         v_los = self.rotation_model(**kwargs_rotation)
         sigma_los = self.dispersion_model(**kwargs_dispersion)
 
