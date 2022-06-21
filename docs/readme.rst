@@ -1,0 +1,4 @@
+ReadMe
+======
+
+.. include:: ../README.rst
