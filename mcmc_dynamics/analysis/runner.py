@@ -387,8 +387,11 @@ class Runner(object):
         # check if starting values fulfil priors
         for i in range(n_walkers):
             if not np.isfinite(self.lnprior(pos[i])):
+                print(self.fitted_parameters)
+                print(pos[i])
                 raise ValueError(
                     "Invalid initial guesses for walker {0}: {1}={2}".format(i, self.fitted_parameters, pos[i]))
+
 
         # start MCMC
         if n_threads > 1:
@@ -777,7 +780,7 @@ class Runner(object):
 
         if 'labels' not in kwargs.keys():
             kwargs['labels'] = self.labels
-        corner_plot = corner.corner(samples, **kwargs)
+        corner_plot = corner.corner(samples,quantiles=[0.16, 0.5, 0.84],show_titles=True, **kwargs)
 
         axes = np.array(corner_plot.axes).reshape((self.n_fitted_parameters, self.n_fitted_parameters))
         for yi in range(1, self.n_fitted_parameters):
