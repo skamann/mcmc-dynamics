@@ -248,8 +248,8 @@ class ConstantFitGB(ConstantFit):
     approximated by a Gaussian in radial velocity space.
     """
 
-    MODEL_PARAMETERS = ['v_back', 'sigma_back', 'f_back', 'v_sys', 'sigma_max', 'v_maxx', 'v_maxy']
-    OBSERVABLES = {'v': u.km / u.s, 'verr': u.km / u.s, 'theta': u.rad, 'density': u.dimensionless_unscaled}
+    MODEL_PARAMETERS = ConstantFit.MODEL_PARAMETERS + ['v_back', 'sigma_back', 'f_back']
+    OBSERVABLES = dict(ConstantFit.OBSERVABLES, **{'density': u.dimensionless_unscaled})
 
     def __init__(self, data, parameters=None, **kwargs):
         """

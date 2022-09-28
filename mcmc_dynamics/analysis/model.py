@@ -346,8 +346,8 @@ class ModelFitGB(ModelFit):
     2dim. source density of the target distribution at the position of each
     velocity measurement, relative to a central value.
     """
-    MODEL_PARAMETERS = ['v_back', 'sigma_back', 'f_back', 'v_sys', 'v_maxx', 'v_maxy', 'r_peak', 'sigma_max', 'a']
-    OBSERVABLES = {'v': u.km/u.s, 'verr': u.km/u.s, 'r': u.arcsec, 'theta': u.rad, 'density': u.dimensionless_unscaled}
+    MODEL_PARAMETERS = ModelFit.MODEL_PARAMETERS + ['v_back', 'sigma_back', 'f_back']
+    OBSERVABLES = dict(ModelFit.OBSERVABLES, **{'density': u.dimensionless_unscaled})
 
     def __init__(self, data, parameters=None, **kwargs):
         """
@@ -500,26 +500,23 @@ class ModelFitGB(ModelFit):
                 m*np.exp(lnlike_cluster - max_lnlike) + (1. - m)*np.exp(lnlike_back - max_lnlike))
 
 
-class ModelFitNonGB(ModelFit):
-
+class ModelFitConstantBackground(ModelFit):
     """
-    A child class of ModelFit that includes a background component
-    approximated by a Gaussian in radial velocity space.
+    A child class of ModelFit that includes a constant background component,
+    i.e. a background for which no parameters are altered during the analysis.
 
-    Compared to the parent ModelFit class, this class uses three additional
-    parameters. `v_back` and `sigma_back` are the shape parameters of the
-    Gaussian used to describe the distribution of background velocities.
-    `f_back` measures the fractional contribution of background sources to
-    the observed source density.
+    Compared to the parent ModelFit class, this class uses one additional free
+    parameter. `f_back` measures the fractional contribution of background
+    sources to the observed source density.
 
     As an additional observable, `density` must be provided, indicating the
     2dim. source density of the target distribution at the position of each
     velocity measurement, relative to a central value.
     """
-    MODEL_PARAMETERS = ModelFit.MODEL_PARAMETERS + ['f_back', 'v_back', 'sigma_back']
+    MODEL_PARAMETERS = ModelFit.MODEL_PARAMETERS + ['f_back', ]
     OBSERVABLES = dict(ModelFit.OBSERVABLES, **{'density': u.dimensionless_unscaled})
 
-    def __init__(self, data, parameters=None, **kwargs):
+    def __init__(self, data, background, parameters=None, **kwargs):
         """
         Initialize a new instance of the ConstantFitGB class.
 
@@ -531,6 +528,10 @@ class ModelFitNonGB(ModelFit):
             ConstantFit class, the data also need to include a column named
             'density', containing the normalized stellar surface density at
             the location of each star.
+        background : instance of a mcmc_dynamics.background class.
+            The instance must be callable, take the measured velocities and
+            their uncertainties as arguments, and return the likelihoods for
+            the background population.
         parameters : instance of Parameters, optional
             The model parameters
         kwargs
@@ -543,10 +544,8 @@ class ModelFitNonGB(ModelFit):
         if parameters is None:
             parameters = Parameters().load(pkg_resources.open_text(config, 'model_with_background.json'))
 
-        background = kwargs.pop('background', None)
-
         # call parent class initialisation.
-        super(ModelFitNonGB, self).__init__(data=data, parameters=parameters, **kwargs)
+        super(ModelFitConstantBackground, self).__init__(data=data, parameters=parameters, **kwargs)
 
         self.background = background
         self.lnlike_background = self.background(self.v, self.verr)
@@ -554,15 +553,6 @@ class ModelFitNonGB(ModelFit):
     def lnlike(self, values, no_sum=False):
         """
         Calculate the log likelihood of the current model given the data.
-
-        It is assumed that the distribution follows a Gaussian distribution.
-        Therefore, the probability p of a single measurement (v, v_err) is
-        estimated as:
-
-        p = exp{-(v - v0)**2/[2*(v_disp^2 + v_err^2)]}/[2.*(v_disp^2 + v_err^2)]
-
-        Then the log likelihood is then determined by summing over the
-        probabilities of all measurements and taking the ln: loglike = ln(sum(p))
 
         Parameters
         ----------
@@ -621,6 +611,23 @@ class ModelFitNonGB(ModelFit):
             return lnlike.sum()
 
     def calculate_membership_probabilities(self, chain, n_burn):
+        """
+        Calculate a posteriori membership probabilities for all sources.
+
+        Parameters
+        ----------
+        chain : ndarray
+            The MCMC chain containing the parameters sampled during the
+            analysis.
+        n_burn : int
+            The number of steps at the beginning of the chain discarded as
+            burn-in.
+
+        Returns
+        -------
+        p_member : 1D array
+            The cluster membership probabilities for all stars.
+        """
 
         bestfit = self.compute_bestfit_values(chain=chain, n_burn=n_burn)
         parameters = dict(zip(bestfit.columns, [bestfit.loc['median'][c] for c in bestfit.columns]))

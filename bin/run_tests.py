@@ -57,7 +57,7 @@ if __name__ == "__main__":
         'verr': np.zeros((args.nstars,), dtype=np.float64)*u.km/u.s})
 
     # Create mock velocity sample
-    x_pa = separation * np.sin(position_angle - theta_0)
+    x_pa = separation * np.sin(position_angle + np.pi/2.*u.rad - theta_0)  # PI/2 offset because theta_0 measured W->N
     v_los = v_sys + 2. * (v_max / r_peak) * x_pa / (1. + (separation / r_peak) ** 2)
 
     sigma_los = sigma_max / (1. + (separation / a) ** 2) ** 0.25
@@ -142,8 +142,10 @@ if __name__ == "__main__":
     mf.parameters['v_maxy'].set(initials='rng.normal(loc=0, scale=3, size=n)')  # , expr="v_maxx*tan(theta_0)")
     mf.parameters['r_peak'].set(
         min=r_min, max=r_max, initials='{0}*rng.beta(a=2, b=5, size=n) + {1}'.format((r_max-r_min).value, r_min.value))
-    mf.parameters['ra_center'].set(value=sc.ra, fixed=True)
-    mf.parameters['dec_center'].set(value=sc.dec, fixed=True)
+    mf.parameters['ra_center'].set(value=sc.ra, fixed=False,
+                                   initials='rng.normal(loc={0}, scale={1}, size=n)'.format(sc.ra.value, a.to(u.deg).value))
+    mf.parameters['dec_center'].set(value=sc.dec, fixed=False,
+                                   initials='rng.normal(loc={0}, scale={1}, size=n)'.format(sc.dec.value, a.to(u.deg).value))
     mf.parameters.pretty_print()
 
     # run model calculation
