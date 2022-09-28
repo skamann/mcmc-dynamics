@@ -1,6 +1,5 @@
 import importlib.resources as pkg_resources
 import numpy as np
-from scipy import stats
 from astropy import units as u
 
 from .axisymmetric import Axisymmetric
@@ -143,7 +142,7 @@ class AnalyticalProfiles(Axisymmetric):
     analysis.
     """
     MODEL_PARAMETERS = ['d', 'mlr_0', 'mlr_t', 'mlr_inf', 'r_mlr', 'barq', 'kappa_x', 'kappa_y', 'r_kappa',
-                        'beta', 'mbh', 'delta_x', 'delta_y', 'rbh', 'delta_v']
+                        'beta', 'mbh', 'ra_center', 'dec_center', 'rbh', 'delta_v']
 
     def __init__(self, data, mge_mass, mge_lum, parameters=None, mge_files=None, **kwargs):
         """
@@ -237,8 +236,8 @@ class AnalyticalProfiles(Axisymmetric):
         
         if self.use_mge_grid:
             # find out which MGE profile to use based on the current offset
-            idx = get_nearest_neigbhbour_idx2(-parameters['delta_x'].to(u.arcsec).value, 
-                                              -parameters['delta_y'].to(u.arcsec).value, 
+            idx = get_nearest_neigbhbour_idx2(parameters['ra_center'].to(u.deg).value,
+                                              parameters['dec_center'].to(u.deg).value,
                                               self.mge_files)
             mge_lum, mge_mass = get_mge(self.mge_files[idx])
 

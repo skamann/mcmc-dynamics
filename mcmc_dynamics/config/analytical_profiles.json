@@ -14,8 +14,8 @@
     ["r_kappa", null, "arcsec", false, 0.0, Infinity, "$r_{{\\rm \\kappa}}$", "rng.lognormal(size=n)", null, null, null],
     ["beta", null, null, false, -Infinity, 1.0, "$\\beta$", "rng.uniform(-0.5, 0.5, size=n)", null, null, null],
     ["mbh", null, "solMass", false, 0.0, Infinity, "$M_{\\rm BH}$", "rng.lognormal(size=n)", null, null, null],
-    ["delta_x", null, "arcsec", false, -Infinity, Infinity, "$\\Delta x$", "rng.normal(size=n)", null, null, null],
-    ["delta_y", null, "arcsec", false, -Infinity, Infinity, "$\\Delta y$", "rng.normal(size=n)", null, null, null],
+    ["ra_center", null, "deg", false, 0.0, 360.0, "$\\alpha_{\\rm c}$", null, null, null, null],
+    ["dec_center", null, "deg", false, -90.0, 90.0, "$\\delta_{\\rm c}$", null, null, null, null],
     ["rbh", null, "arcsec", false, 0.0, Infinity, "$r_{\\rm BH}$", "rng.lognormal(size=n)", null, null, null],
     ["delta_v", null, "km/s", false, -Infinity, Infinity, "$\\Delta v$", "rng.normal(size=n)", null, null, null]
   ]
