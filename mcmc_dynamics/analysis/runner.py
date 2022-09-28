@@ -64,15 +64,10 @@ class Runner(object):
         assert isinstance(data, DataReader), "'data' must be instance of {0}".format(DataReader.__module__)
         self.data = data
 
-        # if cartesian coordinates are required but not present, check if they can be recovered
-        if 'x' in self.OBSERVABLES or 'y' in self.OBSERVABLES:
-            if not data.has_cartesian and data.has_polar:
-                data.compute_cartesian()
-
-        # if polar coordinates are required but not present, check if they can be recovered
-        if 'r' in self.OBSERVABLES or 'theta' in self.OBSERVABLES:
-            if not data.has_polar and data.has_cartesian:
-                data.compute_polar()
+        # if WCS coordinates are required, check if they are available
+        if 'ra' in self.OBSERVABLES or 'dec' in self.OBSERVABLES:
+            if not data.has_coordinates:
+                raise IOError('Missing WCS coordinates of observed data.')
 
         # make sure all required columns are available
         for required, unit in self.OBSERVABLES.items():

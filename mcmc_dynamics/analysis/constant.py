@@ -3,22 +3,18 @@ import logging
 import numpy as np
 import importlib.resources as pkg_resources
 from astropy import units as u
-# from mcmc_dynamics.utils import coordinates
-from mcmc_dynamics.utils.files import DataReader
-from astropy.table import QTable
+
 from .runner import Runner
 from .. import config
 from ..parameter import Parameters
-from ..utils.coordinates import get_amplitude_and_angle
-
+from ..utils.coordinates import calc_xy_offset, get_amplitude_and_angle
 
 logger = logging.getLogger(__name__)
 
 
 class ConstantFit(Runner):
-
-    MODEL_PARAMETERS = ['v_sys', 'sigma_max', 'v_maxx', 'v_maxy', 'dx', 'dy']
-    OBSERVABLES = {'v': u.km/u.s, 'verr': u.km/u.s, 'x': u.arcsec, 'y':u.arcsec}
+    MODEL_PARAMETERS = ['v_sys', 'sigma_max', 'v_maxx', 'v_maxy', 'ra_center', 'dec_center']
+    OBSERVABLES = {'v': u.km / u.s, 'verr': u.km / u.s, 'ra': u.deg, 'dec': u.deg}
 
     def __init__(self, data, parameters=None, **kwargs):
         """
@@ -36,8 +32,8 @@ class ConstantFit(Runner):
             the super-class.
         """
         # required observables
-        self.x = None
-        self.y = None
+        self.ra = None
+        self.dec = None
 
         if parameters is None:
             parameters = Parameters().load(pkg_resources.open_text(config, 'constant.json'))
@@ -47,20 +43,6 @@ class ConstantFit(Runner):
         # get parameters required to evaluate rotation and dispersion models
         self.rotation_parameters = inspect.signature(self.rotation_model).parameters
         self.dispersion_parameters = inspect.signature(self.dispersion_model).parameters
-
-    def compute_theta(self, dx, dy):
-        """
-
-        Parameters
-        ----------
-        dx - x offset to the center
-        dy - y offset to the center
-
-        Returns
-        ----------
-        Returns the theta value by including the offsets to the x and y coordinates
-        """
-        return np.arctan2(self.y+dy,self.x+dx)
 
     def dispersion_model(self, sigma_max, **kwargs):
         """
@@ -84,9 +66,9 @@ class ConstantFit(Runner):
             raise IOError('Unknown keyword argument(s) "{0}" for method {1}.dispersion_model.'.format(
                 ', '.join(kwargs.keys()), self.__class__.__name__))
 
-        return sigma_max*np.ones(self.n_data, dtype=np.float64)
+        return sigma_max * np.ones(self.n_data, dtype=np.float64)
 
-    def rotation_model(self, v_sys, v_maxx, v_maxy,dx,dy, **kwargs):
+    def rotation_model(self, v_sys, v_maxx, v_maxy, ra_center, dec_center, **kwargs):
         """
         The method calculates the rotation velocity at the positions of the
         available data points.
@@ -99,6 +81,10 @@ class ConstantFit(Runner):
             The x-component of the constant rotation velocity of the model.
         v_maxy : float
             The y-component of the constant rotation velocity of the model.
+        ra_center : instance of astropy.units.Quantity
+            The right ascension of the assumed center.
+        dec_center : instance of astropy.units.Quantity
+            The declination of the assumed center.
         kwargs
             This model does not use any additional keyword arguments.
 
@@ -112,11 +98,12 @@ class ConstantFit(Runner):
             raise IOError('Unknown keyword argument(s) "{0}" for method {1}.rotation_model.'.format(
                 ', '.join(kwargs.keys()), self.__class__.__name__))
 
-        v_max = np.sqrt(v_maxx**2 + v_maxy**2)
-        theta = self.compute_theta(dx,dy)
-        # theta_prev = np.arctan2(self.y,self.x)
+        dx, dy = calc_xy_offset(ra=self.ra, dec=self.dec, ra_center=ra_center, dec_center=dec_center)
+        theta = np.arctan2(dy, dx)
+
+        v_max = np.sqrt(v_maxx ** 2 + v_maxy ** 2)
         theta_0 = np.arctan2(v_maxy, v_maxx)
-        return v_sys + (v_max)*np.sin(theta  - theta_0)
+        return v_sys + v_max * np.sin(theta - theta_0)
 
     def lnlike(self, values):
         """
@@ -262,7 +249,7 @@ class ConstantFitGB(ConstantFit):
     """
 
     MODEL_PARAMETERS = ['v_back', 'sigma_back', 'f_back', 'v_sys', 'sigma_max', 'v_maxx', 'v_maxy']
-    OBSERVABLES = {'v': u.km/u.s, 'verr': u.km/u.s, 'theta': u.rad, 'density': u.dimensionless_unscaled}
+    OBSERVABLES = {'v': u.km / u.s, 'verr': u.km / u.s, 'theta': u.rad, 'density': u.dimensionless_unscaled}
 
     def __init__(self, data, parameters=None, **kwargs):
         """
@@ -325,7 +312,8 @@ class ConstantFitGB(ConstantFit):
 
         max_lnlike = np.max([lnlike_cluster, lnlike_back], axis=0)
 
-        lnlike = max_lnlike + np.log(m*np.exp(lnlike_cluster - max_lnlike) + (1. - m)*np.exp(lnlike_back - max_lnlike))
+        lnlike = max_lnlike + np.log(
+            m * np.exp(lnlike_cluster - max_lnlike) + (1. - m) * np.exp(lnlike_back - max_lnlike))
         return lnlike.sum()
 
     def _calculate_lnlike_cluster_back(self, parameters):
@@ -376,4 +364,4 @@ class ConstantFitGB(ConstantFit):
 
         lnlike_cluster, lnlike_back, m = self._calculate_lnlike_cluster_back(parameters)
 
-        return m*np.exp(lnlike_cluster) / (m*np.exp(lnlike_cluster) + (1. - m)*np.exp(lnlike_back))
+        return m * np.exp(lnlike_cluster) / (m * np.exp(lnlike_cluster) + (1. - m) * np.exp(lnlike_back))
