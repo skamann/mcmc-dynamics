@@ -7,9 +7,9 @@ from astropy import units as u
 from astropy.table import QTable
 
 from mcmc_dynamics.analysis import ModelFit, ConstantFit
+from mcmc_dynamics.utils.coordinates import calc_xy_offset
 from mcmc_dynamics.utils.plots import ProfilePlot
 from mcmc_dynamics.utils.files import DataReader
-from mcmc_dynamics.parameter import Parameter
 
 
 logger = logging.getLogger(__name__)
@@ -31,6 +31,7 @@ if __name__ == "__main__":
     logger.info('Creating input data ...')
     np.random.seed(args.seed)
 
+    # Model parameters
     v_sys = 0*u.km/u.s
     r_peak = 60.*u.arcsec
     a = 30.*u.arcsec
@@ -38,16 +39,25 @@ if __name__ == "__main__":
     sigma_max = (5. + 10.*np.random.random())*u.km/u.s
     v_max = args.vsigma*sigma_max
 
+    # "Observations"
+    ra_center = 56.345*u.deg
+    dec_center = -26.675*u.deg
+
     data = DataReader({
-        'r': r_peak*args.rmax*np.random.uniform(0, 1, size=args.nstars)**0.9,
-        'theta': u.rad*np.random.uniform(0, 2.*np.pi, size=args.nstars),
+        'ra': ra_center + r_peak*args.rmax*np.random.uniform(-1, 1, size=args.nstars),
+        'dec': dec_center + r_peak*args.rmax*np.random.uniform(-1, 1, size=args.nstars),
         'v': np.zeros((args.nstars,), dtype=np.float64)*u.km/u.s,
         'verr': np.zeros((args.nstars,), dtype=np.float64)*u.km/u.s})
 
-    x_pa = data.data['r'] * np.sin(data.data['theta'] - theta_0)
-    v_los = v_sys + 2. * (v_max / r_peak) * x_pa / (1. + (data.data['r'] / r_peak) ** 2)
+    # Create mock velocity sample
+    x, y = calc_xy_offset(data.data['ra'], data.data['dec'], ra_center=ra_center, dec_center=dec_center)
+    r = np.sqrt(x**2 + y**2)
+    theta = np.arctan2(y, x)
 
-    sigma_los = sigma_max / (1. + (data.data['r'] / a) ** 2) ** 0.25
+    x_pa = r * np.sin(theta - theta_0)
+    v_los = v_sys + 2. * (v_max / r_peak) * x_pa / (1. + (r / r_peak) ** 2)
+
+    sigma_los = sigma_max / (1. + (r / a) ** 2) ** 0.25
     v_los += sigma_los*np.random.randn(args.nstars)
 
     uncertainties = args.errscale*sigma_los*np.random.lognormal(0, 0.5, size=args.nstars)
@@ -117,8 +127,8 @@ if __name__ == "__main__":
 
     # modify initials for some parameters. Radii are initialized using beta-function between min and max radius covered
     # by data
-    r_min = data.data['r'].min()
-    r_max = data.data['r'].max()
+    r_min = r.min().to(u.arcsec)
+    r_max = r.max().to(u.arcsec)
     mf.parameters['sigma_max'].set(initials='rng.lognormal(mean={0:.2f}, sigma=0.5, size=n)'.format(np.log(10.)))
     mf.parameters['a'].set(
         min=r_min, max=r_max, initials='{0}*rng.beta(a=2, b=5, size=n) + {1}'.format((r_max-r_min).value, r_min.value))
@@ -127,6 +137,8 @@ if __name__ == "__main__":
     mf.parameters['v_maxy'].set(initials='rng.normal(loc=0, scale=3, size=n)')  # , expr="v_maxx*tan(theta_0)")
     mf.parameters['r_peak'].set(
         min=r_min, max=r_max, initials='{0}*rng.beta(a=2, b=5, size=n) + {1}'.format((r_max-r_min).value, r_min.value))
+    mf.parameters['ra_center'].set(value=ra_center, fixed=True)
+    mf.parameters['dec_center'].set(value=dec_center, fixed=True)
     mf.parameters.pretty_print()
 
     # run model calculation

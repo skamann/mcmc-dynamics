@@ -205,7 +205,7 @@ class ConstantFit(Runner):
             calculation and only returned for consistency with other methods.
             Only returned if `return_samples` is set to True.
         """
-        pars = self.convert_to_paramaters(chain=chain, n_burn=n_burn)
+        pars = self.convert_to_parameters(chain=chain, n_burn=n_burn)
 
         results, v_max, _theta = get_amplitude_and_angle(pars, return_samples=return_samples)
 

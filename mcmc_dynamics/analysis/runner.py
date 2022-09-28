@@ -517,7 +517,24 @@ class Runner(object):
         last = chain[:, -1, :]
         return last
 
-    def convert_to_paramaters(self, chain, n_burn):
+    def convert_to_parameters(self, chain, n_burn):
+        """
+        Converts the parameters values stored in the MCMC chain into a
+        dictionary containing one entry per parameter.
+
+        Parameters
+        ----------
+        chain : ndarray
+            The chain returned by the MCMC analysis
+        n_burn : int
+            The number of steps at the beginning of the chain discarded as
+            burn-in.
+
+        Returns
+        -------
+        pars : dict
+            The model parameters sampled by the chain as a dictionary.
+        """
 
         pars = {}
         n_samples = chain.shape[0]*(chain.shape[1] - n_burn)
