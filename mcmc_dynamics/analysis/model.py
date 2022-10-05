@@ -2,7 +2,7 @@
 import inspect
 import logging
 import numpy as np
-import importlib.resources as pkg_resources
+from importlib.resources import files
 from astropy import units as u
 from astropy.table import Table
 from .runner import Runner
@@ -68,6 +68,8 @@ class ModelFit(Runner):
     MODEL_PARAMETERS = ['v_sys', 'v_maxx', 'v_maxy', 'r_peak', 'sigma_max', 'a', 'ra_center', 'dec_center']
     OBSERVABLES = {'v': u.km/u.s, 'verr': u.km/u.s, 'ra': u.deg, 'dec': u.deg}
 
+    parameters_file = files(config).joinpath('model.json')
+
     def __init__(self, data, parameters=None, **kwargs):
         """
         Initialize a new instance of the ModelFit class
@@ -77,7 +79,7 @@ class ModelFit(Runner):
         self.dec = None
 
         if parameters is None:
-            parameters = Parameters().load(pkg_resources.open_text(config, 'model.json'))
+            parameters = Parameters().load(self.parameters_file)
 
         super(ModelFit, self).__init__(data=data, parameters=parameters, **kwargs)
 
@@ -349,6 +351,8 @@ class ModelFitGB(ModelFit):
     MODEL_PARAMETERS = ModelFit.MODEL_PARAMETERS + ['v_back', 'sigma_back', 'f_back']
     OBSERVABLES = dict(ModelFit.OBSERVABLES, **{'density': u.dimensionless_unscaled})
 
+    parameters_file = files(config).joinpath('model_with_background.json')
+
     def __init__(self, data, parameters=None, **kwargs):
         """
         Initialize a new instance of the ConstantFitGB class.
@@ -376,7 +380,7 @@ class ModelFitGB(ModelFit):
             logger.error('Class ConstantFitGB does not support additional background components.')
 
         if parameters is None:
-            parameters = Parameters().load(pkg_resources.open_text(config, 'model_with_background.json'))
+            parameters = Parameters().load(self.parameters_file)
 
         # call parent class initialisation.
         super(ModelFitGB, self).__init__(data=data, parameters=parameters, **kwargs)
@@ -519,6 +523,8 @@ class ModelFitConstantBackground(ModelFit):
     MODEL_PARAMETERS = ModelFit.MODEL_PARAMETERS + ['f_back', ]
     OBSERVABLES = dict(ModelFit.OBSERVABLES, **{'density': u.dimensionless_unscaled})
 
+    parameters_file = files(config).joinpath('model_with_background.json')
+
     def __init__(self, data, background, parameters=None, **kwargs):
         """
         Initialize a new instance of the ConstantFitGB class.
@@ -545,7 +551,7 @@ class ModelFitConstantBackground(ModelFit):
         self.density = None
 
         if parameters is None:
-            parameters = Parameters().load(pkg_resources.open_text(config, 'model_with_background.json'))
+            parameters = Parameters().load(self.parameters_file)
 
         # call parent class initialisation.
         super(ModelFitConstantBackground, self).__init__(data=data, parameters=parameters, **kwargs)

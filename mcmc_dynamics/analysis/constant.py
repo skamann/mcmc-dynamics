@@ -1,7 +1,7 @@
 import inspect
 import logging
 import numpy as np
-import importlib.resources as pkg_resources
+from importlib.resources import files
 from astropy import units as u
 
 from .runner import Runner
@@ -15,6 +15,8 @@ logger = logging.getLogger(__name__)
 class ConstantFit(Runner):
     MODEL_PARAMETERS = ['v_sys', 'sigma_max', 'v_maxx', 'v_maxy', 'ra_center', 'dec_center']
     OBSERVABLES = {'v': u.km / u.s, 'verr': u.km / u.s, 'ra': u.deg, 'dec': u.deg}
+
+    parameters_file = files(config).joinpath('constant.json')
 
     def __init__(self, data, parameters=None, **kwargs):
         """
@@ -36,7 +38,7 @@ class ConstantFit(Runner):
         self.dec = None
 
         if parameters is None:
-            parameters = Parameters().load(pkg_resources.open_text(config, 'constant.json'))
+            parameters = Parameters().load(self.parameters_file)
 
         super(ConstantFit, self).__init__(data=data, parameters=parameters, **kwargs)
 
@@ -251,6 +253,8 @@ class ConstantFitGB(ConstantFit):
     MODEL_PARAMETERS = ConstantFit.MODEL_PARAMETERS + ['v_back', 'sigma_back', 'f_back']
     OBSERVABLES = dict(ConstantFit.OBSERVABLES, **{'density': u.dimensionless_unscaled})
 
+    parameters_file = files(config).joinpath('constant_with_background.json')
+
     def __init__(self, data, parameters=None, **kwargs):
         """
         Initialize a new instance of the ConstantFitGB class.
@@ -273,7 +277,7 @@ class ConstantFitGB(ConstantFit):
         self.density = None
 
         if parameters is None:
-            parameters = Parameters().load(pkg_resources.open_text(config, 'constant_with_background.json'))
+            parameters = Parameters().load(self.parameters_file)
 
         # No additional background component is currently supported
         background = kwargs.pop('background', None)

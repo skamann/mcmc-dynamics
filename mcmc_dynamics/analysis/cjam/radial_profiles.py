@@ -1,4 +1,4 @@
-import importlib.resources as pkg_resources
+from importlib.resources import files
 import numpy as np
 from astropy import units as u
 
@@ -144,6 +144,8 @@ class AnalyticalProfiles(Axisymmetric):
     MODEL_PARAMETERS = ['d', 'mlr_0', 'mlr_t', 'mlr_inf', 'r_mlr', 'barq', 'kappa_x', 'kappa_y', 'r_kappa',
                         'beta', 'mbh', 'ra_center', 'dec_center', 'rbh', 'delta_v']
 
+    parameters_file = files(config).joinpath('analytical_profiles.json')
+
     def __init__(self, data, mge_mass, mge_lum, parameters=None, mge_files=None, **kwargs):
         """
         Initialize a new instance of the AnalyticalProfiles class.
@@ -158,7 +160,7 @@ class AnalyticalProfiles(Axisymmetric):
         kwargs
         """
         if parameters is None:
-            parameters = Parameters().load(pkg_resources.open_text(config, 'analytical_profiles.json'))
+            parameters = Parameters().load(self.parameters_file)
 
         super(AnalyticalProfiles, self).__init__(data=data, mge_mass=mge_mass, mge_lum=mge_lum,
                                                  mge_files=mge_files, parameters=parameters, **kwargs)

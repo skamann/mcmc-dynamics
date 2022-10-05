@@ -1,10 +1,10 @@
 import contextlib
 import logging
 import uuid
-import importlib.resources as pkg_resources
 import numpy as np
 import pandas as pd
 import cjam
+from importlib.resources import files
 from multiprocessing import Pool
 from scipy import stats
 from astropy import units as u
@@ -151,6 +151,8 @@ class Axisymmetric(Runner):
                         'ra_center', 'dec_center', 'rbh', 'delta_v']
     OBSERVABLES = {'ra': u.deg, 'dec': u.deg, 'v': u.km/u.s, 'verr': u.km/u.s}
 
+    parameters_file = files(config).joinpath('axisymmetric.json')
+
     def __init__(self, data, parameters=None, mge_mass=None, mge_lum=None, mge_files=None, **kwargs):
         """
         Initialize a new instance of the Axisymmetric class.
@@ -178,7 +180,7 @@ class Axisymmetric(Runner):
             of the parent Runner class.
         """
         if parameters is None:
-            parameters = Parameters().load(pkg_resources.open_text(config, 'axisymmetric.json'))
+            parameters = Parameters().load(self.parameters_file)
 
         # required observables
         self.ra = None

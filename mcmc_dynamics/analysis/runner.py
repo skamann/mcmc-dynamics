@@ -35,6 +35,8 @@ class Runner(object):
     MODEL_PARAMETERS = []
     OBSERVABLES = {'v': u.km/u.s, 'verr': u.km/u.s}
 
+    parameters_file = None
+
     def __init__(self, data, parameters, seed=123, background=None, **kwargs):
         """
         Initializes a new instance of the Runner class.
@@ -102,6 +104,13 @@ class Runner(object):
         else:
             self.lnlike_background = None
             self.pmember = None
+
+    @classmethod
+    def default_parameters(cls):
+        if cls.parameters_file is None:
+            raise NotImplementedError
+
+        return Parameters().load(open(cls.parameters_file))
 
     @property
     def n_data(self):
