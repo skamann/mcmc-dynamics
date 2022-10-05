@@ -1,6 +1,5 @@
 import logging
 import numpy as np
-from astropy import units as u
 from astropy.table import QTable
 from ..coordinates import calc_xy_offset
 
@@ -44,77 +43,30 @@ class DataReader(object):
     def has_coordinates(self):
         return self.has_ra & self.has_dec
 
-    # def rotate(self, alpha):
-    #     """
-    #     Rotate the coordinate system by an angle alpha around its origin.
-    #
-    #     Parameters
-    #     ----------
-    #     alpha : float
-    #         The angle by which to rotate in counterclockwise direction.
-    #
-    #     Returns
-    #     -------
-    #     rotated_data : DataReader
-    #        A new instance of the DataReader class is returned. The coordinates
-    #        (if any) are transformed into the new coordinate system.
-    #     """
-    #     alpha = u.Quantity(alpha)
-    #     if alpha.unit.is_unity():
-    #         alpha *= u.rad
-    #         logger.warning('Missing unit of parameter <alpha>. Assuming {0}.'.format(alpha.unit))
-    #
-    #     rotated_data = self.__class__(self.data)
-    #     if not self.has_cartesian and not self.has_polar:
-    #         logger.warning('Current table lacking coordinates to apply rotation to.')
-    #     else:
-    #         if self.has_cartesian:
-    #             rotated_data.data['x'] = self.data['x']*np.cos(alpha) + self.data['y']*np.sin(alpha)
-    #             rotated_data.data['y'] = -self.data['x']*np.sin(alpha) + self.data['y']*np.cos(alpha)
-    #         if self.has_polar:
-    #             rotated_data.data['theta'] -= alpha
-    #
-    #     return rotated_data
-    #
-    # def compute_polar(self):
-    #     """
-    #     Calculates polar coordinates from the cartesian ones and adds them to
-    #     the data of the current instance.
-    #     """
-    #
-    #     if not self.has_cartesian:
-    #         logger.error('Cannot calculate polar coordinates as cartesian coordinates are missing.')
-    #         return
-    #
-    #     self.data['r'] = np.sqrt(self.data['x']**2 + self.data['y']**2)
-    #     # if self.data['x'].unit is not None:
-    #     #     print(self.data['r'].unit)
-    #     #     self.data['r'].unit = self.data['x'].unit
-    #     self.data['theta'] = np.arctan2(self.data['y'], self.data['x'])
-    #     # self.data['theta'].unit = u.rad
-    #
-    # def compute_cartesian(self):
-    #     """
-    #     Calculates cartesian coordinates from the polar ones and adds them to
-    #     the data of the current instance.
-    #     """
-    #     if not self.has_polar:
-    #         logger.error('Cannot calculate cartesian coordinates as polar coordinates are missing.')
-    #         return
-    #
-    #     self.data['x'] = self.data['r']*np.cos(self.data['theta'])
-    #     self.data['y'] = self.data['r']*np.sin(self.data['theta'])
-    #     #if self.data['r'].unit is not None:
-    #     #    print(self.data['x'])
-    #     #    self.data['x'].unit = self.data['r'].unit
-    #     #    self.data['y'].unit = self.data['r'].unit
-    #
-    # def apply_offset(self, x=0, y=0):
-    #     """
-    #     Subtracts the given values from all x- and y-coordinates.
-    #     """
-    #     self.data['x'] -= x
-    #     self.data['y'] -= y
+
+    def compute_distances(self, ra_center, dec_center):
+        """
+        Calculates and returns distances of the data points relative to a
+        given reference.
+
+        Parameters
+        ----------
+        ra_center : instance of astropy.units.Quantity
+            The right ascension of the reference point.
+        dec_center : instance of astropy.unit.Quantity
+            The declination of the reference point.
+
+        Returns
+        -------
+        r : astropy.units.Quantity
+            The distance of the data points relative to the reference.
+        """
+        if not self.has_coordinates:
+            logger.error('Cannot calculate distances as world coordinates are missing.')
+            return
+
+        x, y = calc_xy_offset(self.data['ra'], self.data['dec'], ra_center, dec_center)
+        return np.sqrt(x**2 + y**2)
 
     def make_radial_bins(self, ra_center, dec_center, nstars=50, dlogr=0.2):
         """
