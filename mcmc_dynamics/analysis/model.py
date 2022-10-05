@@ -426,7 +426,7 @@ class ModelFitGB(ModelFit):
         for parameter, value in parameter_dict.items():
             if parameter in self.rotation_parameters.keys():
                 kwargs_rotation[parameter] = value
-            elif parameter in self.dispersion_parameters.keys():
+            if parameter in self.dispersion_parameters.keys():
                 kwargs_dispersion[parameter] = value
             else:
                 continue
@@ -476,12 +476,15 @@ class ModelFitGB(ModelFit):
         kwargs_rotation = {}
         kwargs_dispersion = {}
 
+        used = False
         for parameter, value in parameters.items():
             if parameter in self.rotation_parameters.keys():
                 kwargs_rotation[parameter] = value
-            elif parameter in self.dispersion_parameters.keys():
+                used = True
+            if parameter in self.dispersion_parameters.keys():
                 kwargs_dispersion[parameter] = value
-            else:
+                used = True
+            if not used:
                 raise IOError('Unknown model parameter "{0}" provided.'.format(parameter))
 
         # evaluate models of positions of data points
@@ -583,7 +586,7 @@ class ModelFitConstantBackground(ModelFit):
         for parameter, value in parameter_dict.items():
             if parameter in self.rotation_parameters.keys():
                 kwargs_rotation[parameter] = value
-            elif parameter in self.dispersion_parameters.keys():
+            if parameter in self.dispersion_parameters.keys():
                 kwargs_dispersion[parameter] = value
             else:
                 continue
@@ -648,12 +651,15 @@ class ModelFitConstantBackground(ModelFit):
         kwargs_rotation = {}
         kwargs_dispersion = {}
 
+        used = False
         for parameter, value in parameters.items():
             if parameter in self.rotation_parameters.keys():
                 kwargs_rotation[parameter] = value
-            elif parameter in self.dispersion_parameters.keys():
+                used = True
+            if parameter in self.dispersion_parameters.keys():
                 kwargs_dispersion[parameter] = value
-            else:
+                used = True
+            if not used:
                 raise IOError('Unknown model parameter "{0}" provided.'.format(parameter))
 
         # evaluate models of positions of data points
