@@ -68,13 +68,14 @@ class SingleStars(object):
         if sigma_int.unit.is_unity():
             sigma_int *= u.km/u.s
             logger.warning('Missing quantity for parameter <sigma_int>. Assuming {0}.'.format(sigma_int.unit))
-
+        '''
         norm = sigma_int**2 + verr**2
         exp_coeff = -(np.subtract.outer(self.v, v)) ** 2 / (2. * norm)
         exp_coeff_max = np.max(exp_coeff, axis=0)
         lnlike = exp_coeff_max + np.log(np.sum(np.exp(exp_coeff - exp_coeff_max)/
                                                (np.sqrt(2.*np.pi*norm.value)), axis=0)) - np.log(self.n_stars)
         return lnlike
+        '''
         lnlike = np.zeros(len(v), dtype=np.float64)
 
         for i in range(len(v)):
