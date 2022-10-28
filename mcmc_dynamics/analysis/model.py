@@ -659,7 +659,8 @@ class ModelFitNonGB(ModelFit):
             elif parameter in self.dispersion_parameters.keys():
                 kwargs_dispersion[parameter] = value
             else:
-                raise IOError('Unknown model parameter "{0}" provided.'.format(parameter))
+                continue
+                # raise IOError('Unknown model parameter "{0}" provided.'.format(parameter))
 
         # evaluate models of positions of data points
         v_los = self.rotation_model(**kwargs_rotation)
