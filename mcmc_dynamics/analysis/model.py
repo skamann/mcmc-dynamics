@@ -4,13 +4,10 @@ import logging
 import numpy as np
 import importlib.resources as pkg_resources
 from astropy import units as u
-from mcmc_dynamics.utils.files import DataReader
 from astropy.table import Table, QTable
 from .runner import Runner
 from .. import config
 from ..parameter import Parameters
-from ..utils.coordinates import get_amplitude_and_angle
-
 
 logger = logging.getLogger(__name__)
 
@@ -21,45 +18,35 @@ class ModelFit(Runner):
     dispersion profile of a cluster using simple analytical models.
 
     The rotation profile is modeled as expected for a system that underwent
-    violent relaxation (e.g., `Lynden-Bell 1967`_). In this
-    case, the radial dependence is given as
+    violent relaxation (e.g. Lynden-Bell 1967, MNRAS, 136, 101). In this case,
+    the radial dependence is given as
 
-    .. math::
-       v_{rot}(r, \\theta) = V_{SYS} + 2(V_{MAX}/R_{PEAK}) \\cdot
-       x_{pa}/(1 + (x_{pa}/R_{PEAK})^2),
+    v_rot(r, theta) = V_SYS + 2*(V_MAX/R_PEAK) * x_pa/(1. + (x_pa/R_PEAK)**2),
 
     where
 
-    .. math::
-       x_{pa}(r, \\theta) = r \\cdot \\sin(\\theta - THETA_0).
+    x_pa(r, theta) = r * np.sin(theta - THETA_0).
 
 
-    The dispersion is modeled as a `Plummer (1911)`_ profile with the
-    following functional form,
+    The dispersion is modeled as a Plummer (1911, MNRAS, 71, 460) profile with
+    the following functional form,
 
-    .. math::
-       \\sigma(r) = SIGMA_0/(1 + r^2 / A^2)^{0.25}.
+    sigma(r) = SIGMA_0/(1. + r**2 / A**2)**0.25.
 
-    Hence, the model has up to 8 free parameters, V_SYS, V_MAX, R_PEAK,
-    THETA_0, SIGMA_0, DX, DY, and A.
 
-    The data required per star are the cartesian coordinates :math:`x` and :math:`y` to the cluster
-    centre, the radial velocity :math:`v` and the velocity uncertainty
-    :math:`\\epsilon_v`.
+    Hence, the model has up to 6 free parameters, V_SYS, V_MAX, R_PEAK,
+    THETA_0, SIGMA_0, and A.
 
-    References
-    ----------
-    .. _Lynden-Bell 1967:
-       https://ui.adsabs.harvard.edu/abs/1967MNRAS.136..101L/abstract
-    .. _Plummer (1911):
-       https://ui.adsabs.harvard.edu/abs/1911MNRAS..71..460P/abstract
+    The data required per star are the distance r to the cluster centre, the
+    position angle theta (measured from north counterclockwise), the radial
+    velocity v and the velocity uncertainty epsilon_v.
     """
-    MODEL_PARAMETERS = ['v_sys', 'v_maxx', 'v_maxy', 'r_peak', 'sigma_max', 'a', 'dx','dy']
-    OBSERVABLES = {'v': u.km/u.s, 'verr': u.km/u.s, 'x': u.arcsec, 'y': u.arcsec}
+    MODEL_PARAMETERS = ['v_sys', 'v_maxx', 'v_maxy', 'r_peak', 'sigma_max', 'a']
+    OBSERVABLES = {'v': u.km/u.s, 'verr': u.km/u.s, 'r': u.arcsec, 'theta': u.rad}
 
     def __init__(self, data, parameters=None, **kwargs):
         """
-        Initialize a new instance of the ModelFit class
+        Initialize a new instance of the ModelFit class.
 
         Parameters
         ----------
@@ -74,8 +61,8 @@ class ModelFit(Runner):
             initialization of the parent class.
         """
         # required observables
-        self.x = None
-        self.y = None
+        self.r = None
+        self.theta = None
 
         if parameters is None:
             parameters = Parameters().load(pkg_resources.open_text(config, 'model.json'))
@@ -86,7 +73,7 @@ class ModelFit(Runner):
         self.rotation_parameters = inspect.signature(self.rotation_model).parameters
         self.dispersion_parameters = inspect.signature(self.dispersion_model).parameters
 
-    def dispersion_model(self, sigma_max,dx,dy, a=1, **kwargs):
+    def dispersion_model(self, sigma_max, a=1, **kwargs):
         """
         The method calculates the line-of-sight velocity dispersion at the
         positions (r, theta) of the available data points.
@@ -115,39 +102,9 @@ class ModelFit(Runner):
             raise IOError('Unknown keyword argument(s) "{0}" for method {1}.dispersion_model.'.format(
                 ', '.join(kwargs.keys()), self.__class__.__name__))
 
-        r = self.compute_r(dx,dy)
-        return sigma_max / (1. + (r) ** 2 / a ** 2) ** 0.25
+        return sigma_max / (1. + self.r ** 2 / a ** 2) ** 0.25
 
-    def compute_theta(self,dx,dy):
-        """
-
-             Parameters
-             ----------
-             dx - x offset to the center
-             dy - y offset to the center
-
-             Returns
-             ----------
-             Returns the theta value after including the offsets to the x and y coordinates
-             """
-        return np.arctan2(self.y + dy, self.x + dx)
-
-    def compute_r(self,dx,dy):
-        """
-
-        Parameters
-        ----------
-        dx - x offset to the center
-        dy - y offset to the center
-
-        Returns
-        -------
-        Returns the radius of the coordinates after including the offsets to the x and y coordinates
-
-        """
-        return np.sqrt((self.x+dx)**2 + (self.y+dy)**2)
-
-    def rotation_model(self, v_sys, v_maxx, v_maxy, dx, dy, r_peak=None, **kwargs):
+    def rotation_model(self, v_sys, v_maxx, v_maxy, r_peak=1., **kwargs):
         """
         The method calculates the line-of-sight velocity at the positions
         (r, theta) of the available data points.
@@ -184,15 +141,11 @@ class ModelFit(Runner):
             raise IOError('Unknown keyword argument(s) "{0}" for method {1}.rotation_model.'.format(
                 ', '.join(kwargs.keys()), self.__class__.__name__))
 
-        r = self.compute_r(dx,dy)
-        if r_peak is None:
-            r_peak = np.median(r)
-
         v_max = np.sqrt(v_maxx**2 + v_maxy**2)
         theta_0 = np.arctan2(v_maxy, v_maxx)
-        theta = self.compute_theta(dx,dy)
-        x_pa = r * np.sin(theta - theta_0)
-        return v_sys + 2. * (v_max / r_peak) * x_pa / (1. + (r / r_peak) ** 2)
+
+        x_pa = self.r * np.sin(self.theta - theta_0)
+        return v_sys + 2. * (v_max / r_peak) * x_pa / (1. + (self.r / r_peak) ** 2)
 
     def lnlike(self, values):
         """
@@ -223,11 +176,11 @@ class ModelFit(Runner):
         for parameter, value in self.fetch_parameter_values(values).items():
             if parameter in self.rotation_parameters.keys():
                 kwargs_rotation[parameter] = value
-            if parameter in self.dispersion_parameters.keys():
+            elif parameter in self.dispersion_parameters.keys():
                 kwargs_dispersion[parameter] = value
             else:
                 continue
-                # logger.warning('Unknown model parameter "{0}" provided.'.format(parameter))
+                # raise IOError('Unknown model parameter "{0}" provided.'.format(parameter))
 
         # evaluate functions at positions of measurements
 
@@ -265,7 +218,6 @@ class ModelFit(Runner):
         fitted_models = {}
 
         i = 0
-        '''
         do_later = []
         params = self.parameters.copy()
         for name, parameter in params.items():
@@ -281,13 +233,13 @@ class ModelFit(Runner):
 
         for name, parameter in params.items():
             fitted_models[name] = u.Quantity(parameter.value, parameter.unit)
-        '''
-        for name, parameter in self.parameters.items():
-            if parameter.fixed:
-                fitted_models[name] = u.Quantity(parameter.value, parameter.unit)
-            else:
-                fitted_models[name] = u.Quantity(chains[:, n_burn:, i].flatten(), parameter.unit)
-                i += 1
+
+        # for name, parameter in self.parameters.items():
+        #     if parameter.fixed:
+        #         fitted_models[name] = u.Quantity(parameter.value, parameter.unit)
+        #     else:
+        #         fitted_models[name] = u.Quantity(chains[:, n_burn:, i].flatten(), parameter.unit)
+        #         i += 1
 
         v_maxx = fitted_models['v_maxx']
         v_maxy = fitted_models['v_maxy']
@@ -329,21 +281,49 @@ class ModelFit(Runner):
 
     def compute_theta_vmax(self, chain, n_burn, return_samples=False):
 
-        pars = self.convert_to_paramaters(chain=chain, n_burn=n_burn)
-
-        results, v_max, _theta = get_amplitude_and_angle(pars, return_samples=return_samples)
-
-        if results is None:
-            logger.error('Could not recover paramaters of rotation field in {}.compute_theta_vmax().'.format(
-                self.__class__.__name__))
+        try:
+            i = self.fitted_parameters.index('v_maxx')
+            j = self.fitted_parameters.index('v_maxy')
+            k = self.fitted_parameters.index('sigma_max')
+        except ValueError:
+            logger.error("'v_maxx' and/or 'v_maxy' missing in list of fitted parameters.")
             return None
-        else:
-            results['v_max'] *= self.units['v_maxx']
+
+        v_maxx = chain[:, n_burn:, i].flatten()
+        v_maxy = chain[:, n_burn:, j].flatten()
+
+        theta = np.arctan2(v_maxy, v_maxx)
+
+        median_theta = np.arctan2(np.median(v_maxy), np.median(v_maxx))
+
+        # make sure median angle is in the centre of the full angle range (i.e. at 0 when range is (-Pi, Pi])
+        _theta = theta - median_theta
+        _theta = np.where(_theta < -np.pi, _theta + 2 * np.pi, _theta)
+        _theta = np.where(_theta > np.pi, _theta - 2 * np.pi, _theta)
+
+        # to obtain v_max, the values of (v_maxx, vmaxy) rotated by -median_theta. That way, one component will be
+        # in direction of median_theta, which we consider as v_max.
+        v_max = v_maxx * np.cos(-median_theta) - v_maxy * np.sin(-median_theta)
+
+        results = QTable(data=[['median', 'uperr', 'loerr']], names=['value'])
+        results.add_index('value')
+
+        for name, values in {'v_max': v_max, 'theta_0': _theta}.items():
+            unit = u.rad if name == 'theta_0' else self.units['v_maxx']
+
+            percentiles = np.percentile(values, [16, 50, 84])
+
+            results.add_column(QTable.Column(
+                [percentiles[1], percentiles[2] - percentiles[1], percentiles[1] - percentiles[0]] * unit,
+                name=name))
+
+        results.loc['median']['theta_0'] += median_theta * u.rad
 
         if return_samples:
-            return results, v_max, _theta, pars['sigma']
-        else:
-            return results
+            sigmas = chain[:, n_burn:, k].flatten()
+            return results, v_max, _theta, sigmas
+
+        return results
 
 
 class ModelFitGB(ModelFit):
@@ -397,7 +377,7 @@ class ModelFitGB(ModelFit):
         # call parent class initialisation.
         super(ModelFitGB, self).__init__(data=data, parameters=parameters, **kwargs)
 
-    def lnlike(self, values):
+    def lnlike(self, values, no_sum=False):
         """
         Calculate the log likelihood of the current model given the data.
 
@@ -446,7 +426,7 @@ class ModelFitGB(ModelFit):
                 kwargs_dispersion[parameter] = value
             else:
                 continue
-                # logger.warning('Unknown model parameter "{0}" provided.'.format(parameter))
+                # raise IOError('Unknown model parameter "{0}" provided.'.format(parameter))
 
         # evaluate models of positions of data points
         v_los = self.rotation_model(**kwargs_rotation)
@@ -461,8 +441,10 @@ class ModelFitGB(ModelFit):
         max_lnlike = np.max([lnlike_cluster, lnlike_back], axis=0)
 
         lnlike = max_lnlike + np.log(m*np.exp(lnlike_cluster - max_lnlike) + (1. - m)*np.exp(lnlike_back - max_lnlike))
-
-        return lnlike.sum()
+        if no_sum:
+            return lnlike
+        else:
+            return lnlike.sum()
 
     def calculate_membership_probabilities(self, chain, n_burn):
 
@@ -609,7 +591,7 @@ class ModelFitNonGB(ModelFit):
                 kwargs_dispersion[parameter] = value
             else:
                 continue
-                # logger.warning('Unknown model parameter "{0}" provided.'.format(parameter))
+                #  raise IOError('Unknown model parameter "{0}" provided.'.format(parameter))
 
         # evaluate models of positions of data points
         v_los = self.rotation_model(**kwargs_rotation)
@@ -622,11 +604,9 @@ class ModelFitNonGB(ModelFit):
         lnlike_cluster = -0.5 * np.log(2. * np.pi * norm.value) + exponent
 
         max_lnlike = np.max([lnlike_cluster, self.lnlike_background], axis=0)
-        # m[max_lnlike < -10] = 0.0
 
         lnlike = max_lnlike + np.log(m*np.exp(lnlike_cluster - max_lnlike)
                                      + (1. - m)*np.exp(self.lnlike_background - max_lnlike))
-        # lnlike[max_lnlike < -10] = self.lnlike_background[max_lnlike < -10]
         if no_sum:
             return lnlike
         else:
