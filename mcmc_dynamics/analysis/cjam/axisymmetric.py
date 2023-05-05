@@ -209,13 +209,22 @@ class Axisymmetric(Runner):
             idx = get_nearest_neigbhbour_idx2(0, 0, self.mge_files)
             _mge_lum, _ = get_mge(self.mge_files[idx])
             self.median_q = np.median(_mge_lum.data['q'])
+            self.min_q = np.min(_mge_lum.data['q'])
         else:
             self.median_q = np.median(self.mge_lum.data['q'])
+            self.min_q = np.min(self.mge_lum.data['q'])
 
-        # make sure prior on barq is correct in the Parameters instance.
+        # make sure limits on barq are correct in the Parameters instance.
         if self.parameters['barq'].max > self.median_q:
-            logger.warning("Setting upper limit for parameter 'barq' to {0}.".format(self.median_q))
+            logger.warning(f"Setting upper limit for parameter 'barq' to {self.median_q}.")
             self.parameters['barq'].set(max=self.median_q)
+        # for de-projecting the MGE, q = SQRT(q'^2 - SIN(incl)^2)/SIN(incl) needs to be evaluated for each component
+        # hence the inclination cannot be < ARCCOS(q'_min)
+        barq_min = np.sqrt((self.median_q**2 - self.min_q**2)/(1. - self.min_q**2))
+        if self.parameters['barq'].min < barq_min:
+            logger.warning(f"Setting lower limit for parameter 'barq' to {barq_min}.")
+            self.parameters['barq'].set(min=barq_min)
+
 
     def lnlike(self, values, return_model=False):
         x = np.copy(self.x)
