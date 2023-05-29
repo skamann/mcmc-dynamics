@@ -1,10 +1,10 @@
 import contextlib
 import logging
 import uuid
-import importlib.resources as pkg_resources
 import numpy as np
 import pandas as pd
 import cjam
+from importlib.resources import files
 from multiprocessing import Pool
 from scipy import stats
 from astropy import units as u
@@ -13,6 +13,7 @@ from astropy.table import Table
 from ..runner import Runner
 from ... import config
 from ...parameter import Parameters
+from ...utils.coordinates import calc_xy_offset
 from ...utils.files import MgeReader, get_mge, get_nearest_neigbhbour_idx2
 
 
@@ -134,23 +135,23 @@ class Axisymmetric(Runner):
     (5) kappa_y - The y-component of the rotation parameter.
     (6) beta - The anisotropy parameter.
     (7) mbh - The mass of the central black hole.
-    (8) delta_x - The shift of the centroid of the system along the x-axis.
-    (9) delta_y - The shift of the centroid of the system along the y-axis.
+    (8) ra_center - The right ascension coordinate of the cluster centre.
+    (9) dec_center - The declination coordinate of the cluster centre.
     (10) rbh - The (fiducial) radius of the central black hole.
     (11) delta_v - The systemic velocity of the system.
 
     In order to optimize any of the above parameters, the following
     observables must be provided for each star:
-    (1) x - The x-coordinate of the star relative to the (initial) cluster
-            centre.
-    (2) y - The y-coordinate of the star relative to the (initial) cluster
-            centre.
+    (1) ra - The right ascension coordinate of the star.
+    (2) dec - The declination coordinate of the star.
     (3) v - The measured radial velocity.
     (4) verr - The uncertainty of the measured velocity.
     """
     MODEL_PARAMETERS = ['d', 'mlr', 'barq', 'kappa_x', 'kappa_y', 'beta', 'mbh',
-                        'delta_x', 'delta_y', 'rbh', 'delta_v']
-    OBSERVABLES = {'x': u.arcsec, 'y': u.arcsec, 'v': u.km/u.s, 'verr': u.km/u.s}
+                        'ra_center', 'dec_center', 'rbh', 'delta_v']
+    OBSERVABLES = {'ra': u.deg, 'dec': u.deg, 'v': u.km/u.s, 'verr': u.km/u.s}
+
+    parameters_file = files(config).joinpath('axisymmetric.json')
 
     def __init__(self, data, parameters=None, mge_mass=None, mge_lum=None, mge_files=None, **kwargs):
         """
@@ -179,11 +180,11 @@ class Axisymmetric(Runner):
             of the parent Runner class.
         """
         if parameters is None:
-            parameters = Parameters().load(pkg_resources.open_text(config, 'axisymmetric.json'))
+            parameters = Parameters().load(self.parameters_file)
 
         # required observables
-        self.x = None
-        self.y = None
+        self.ra = None
+        self.dec = None
 
         super(Axisymmetric, self).__init__(data=data, parameters=parameters, **kwargs)
 
@@ -218,9 +219,7 @@ class Axisymmetric(Runner):
             self.parameters['barq'].set(max=self.median_q)
 
     def lnlike(self, values, return_model=False):
-        x = np.copy(self.x)
-        y = np.copy(self.y)
-        
+
         current_parameters = self.fetch_parameter_values(values)
         
         unique_id = uuid.uuid4()
@@ -234,21 +233,18 @@ class Axisymmetric(Runner):
         incl = np.arccos(np.sqrt(
             (self.median_q**2 - current_parameters['barq']**2)/(1. - current_parameters['barq']**2)))
 
-        x -= current_parameters['delta_x']
-        y -= current_parameters['delta_y']
-        
         # if we are using a MGE grid instead of a single MGE profile,
         # pick the MGE profile corresponding to the grid point closest to the offset
         if self.use_mge_grid:
-            idx = get_nearest_neigbhbour_idx2(-current_parameters['delta_x'].to(u.arcsec).value, 
-                                              -current_parameters['delta_y'].to(u.arcsec).value, 
+            idx = get_nearest_neigbhbour_idx2(current_parameters['ra_center'].to(u.deg).value,
+                                              current_parameters['dec_center'].to(u.deg).value,
                                               self.mge_files)
             mge_lum, mge_mass = get_mge(self.mge_files[idx])
             mge_lum, mge_mass = mge_lum.data, mge_mass.data
             
             gridpoint = mge_lum['gridpoint'].max()
-            logger.debug("delta_x: {:.3f}, delta_y: {:.3f}, gridpoint: {}".format(
-                current_parameters['delta_x'], current_parameters['delta_y'], gridpoint))
+            logger.debug("RA Center: {:.3f}, Dec Center: {:.3f}, gridpoint: {}".format(
+                current_parameters['ra_center'], current_parameters['dec_center'], gridpoint))
             
         else:
             mge_lum = self.mge_lum.data
@@ -260,13 +256,13 @@ class Axisymmetric(Runner):
         # rotating data to determine rotation angle of cluster
         # copied from data_reader.DataReader.rotate()
         theta0 = np.arctan2(current_parameters['kappa_y'], current_parameters['kappa_x'])
-        
-        xnew = x * np.cos(theta0) + y * np.sin(theta0)
-        ynew = -x * np.sin(theta0) + y * np.cos(theta0)
-        
-        x = xnew
-        y = ynew        
 
+        _x, _y = calc_xy_offset(ra=self.ra, dec=self.dec, ra_center=current_parameters['ra_center'],
+                                dec_center=current_parameters['delta_y'])
+
+        x = _x * np.cos(theta0) + _y * np.sin(theta0)
+        y = -_x * np.sin(theta0) + _y * np.cos(theta0)
+        
         # fixing cjam bug where it throws nans for star too close to centre
         xa = x.to(u.arcmin).value
         ya = y.to(u.arcmin).value
@@ -370,7 +366,7 @@ class Axisymmetric(Runner):
 
         if self.use_mge_grid:
             for i, p in enumerate(parameters):
-                idx = get_nearest_neigbhbour_idx2(-p['delta_x'].to(u.arcsec).value, -p['delta_y'].to(u.arcsec).value,
+                idx = get_nearest_neigbhbour_idx2(p['ra_center'].to(u.deg).value, p['dec_center'].to(u.deg).value,
                                                   self.mge_files)
                 parameters[i]['mge_filename'] = self.mge_files[idx]
         else:
@@ -498,4 +494,3 @@ class Axisymmetric(Runner):
             mlr_profile += mlr[j]*gaussian
 
         return radii, mlr_profile/total
-

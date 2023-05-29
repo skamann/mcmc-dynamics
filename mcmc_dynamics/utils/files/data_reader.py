@@ -1,7 +1,7 @@
 import logging
 import numpy as np
-from astropy import units as u
 from astropy.table import QTable
+from ..coordinates import calc_xy_offset
 
 
 logger = logging.getLogger(__name__)
@@ -27,131 +27,75 @@ class DataReader(object):
         """
         self.data = QTable(data, **kwargs)
 
-        if self.has_cartesian and self.has_polar:
-            logger.warning('Provided data contains cartesian and polar coordinates.')
-            logger.warning('No consistency checks are made to check if cartesian and polar coordinates agree.')
-
-    @property
-    def has_x(self):
-        return 'x' in self.data.columns
-
-    @property
-    def has_y(self):
-        return 'y' in self.data.columns
-
-    @property
-    def has_r(self):
-        return 'r' in self.data.columns
-
-    @property
-    def has_theta(self):
-        return'theta' in self.data.columns
-
-    @property
-    def has_cartesian(self):
-        return self.has_x & self.has_y
-
-    @property
-    def has_polar(self):
-        return self.has_r & self.has_theta
-
     @property
     def sample_size(self):
         return len(self.data)
 
-    def rotate(self, alpha):
+    @property
+    def has_ra(self):
+        return 'ra' in self.data.columns
+
+    @property
+    def has_dec(self):
+        return 'dec' in self.data.columns
+
+    @property
+    def has_coordinates(self):
+        return self.has_ra & self.has_dec
+
+
+    def compute_distances(self, ra_center, dec_center):
         """
-        Rotate the coordinate system by an angle alpha around its origin.
+        Calculates and returns distances of the data points relative to a
+        given reference.
 
         Parameters
         ----------
-        alpha : float
-            The angle by which to rotate in counterclockwise direction.
+        ra_center : instance of astropy.units.Quantity
+            The right ascension of the reference point.
+        dec_center : instance of astropy.unit.Quantity
+            The declination of the reference point.
 
         Returns
         -------
-        rotated_data : DataReader
-           A new instance of the DataReader class is returned. The coordinates
-           (if any) are transformed into the new coordinate system.
+        r : astropy.units.Quantity
+            The distance of the data points relative to the reference.
         """
-        alpha = u.Quantity(alpha)
-        if alpha.unit.is_unity():
-            alpha *= u.rad
-            logger.warning('Missing unit of parameter <alpha>. Assuming {0}.'.format(alpha.unit))
-
-        rotated_data = self.__class__(self.data)
-        if not self.has_cartesian and not self.has_polar:
-            logger.warning('Current table lacking coordinates to apply rotation to.')
-        else:
-            if self.has_cartesian:
-                rotated_data.data['x'] = self.data['x']*np.cos(alpha) + self.data['y']*np.sin(alpha)
-                rotated_data.data['y'] = -self.data['x']*np.sin(alpha) + self.data['y']*np.cos(alpha)
-            if self.has_polar:
-                rotated_data.data['theta'] -= alpha
-
-        return rotated_data
-
-    def compute_polar(self):
-        """
-        Calculates polar coordinates from the cartesian ones and adds them to
-        the data of the current instance.
-        """
-
-        if not self.has_cartesian:
-            logger.error('Cannot calculate polar coordinates as cartesian coordinates are missing.')
+        if not self.has_coordinates:
+            logger.error('Cannot calculate distances as world coordinates are missing.')
             return
 
-        self.data['r'] = np.sqrt(self.data['x']**2 + self.data['y']**2)
-        # if self.data['x'].unit is not None:
-        #     print(self.data['r'].unit)
-        #     self.data['r'].unit = self.data['x'].unit
-        self.data['theta'] = np.arctan2(self.data['y'], self.data['x'])
-        # self.data['theta'].unit = u.rad
+        x, y = calc_xy_offset(self.data['ra'], self.data['dec'], ra_center, dec_center)
+        return np.sqrt(x**2 + y**2)
 
-    def compute_cartesian(self):
+    def make_radial_bins(self, ra_center, dec_center, nstars=50, dlogr=0.2):
         """
-        Calculates cartesian coordinates from the polar ones and adds them to
-        the data of the current instance.
-        """
-        if not self.has_polar:
-            logger.error('Cannot calculate cartesian coordinates as polar coordinates are missing.')
-            return
-
-        self.data['x'] = self.data['r']*np.cos(self.data['theta'])
-        self.data['y'] = self.data['r']*np.sin(self.data['theta'])
-        #if self.data['r'].unit is not None:
-        #    print(self.data['x'])
-        #    self.data['x'].unit = self.data['r'].unit
-        #    self.data['y'].unit = self.data['r'].unit
-        
-    def apply_offset(self, x=0, y=0):
-        """
-        Subtracts the given values from all x- and y-coordinates.
-        """
-        self.data['x'] -= x
-        self.data['y'] -= y
-
-    def make_radial_bins(self, nstars=50, dlogr=0.2, force=False):
-        """
+        Create radial bins relative to the provided center.
 
         Parameters
         ----------
-        nstars
-        dlogr
-
-        Returns
-        -------
-
+        ra_center : instance of astropy.units.Quantity
+            The right ascension of the center around which to create the
+            radial bins.
+        dec_center : instance of astropy.units.Quantity
+            The declination of the center around which to create the radial
+            bins.
+        nstars : int, optional
+            The minimum number of stars per bin.
+        dlogr : float, optional
+            The minimum extent in log10(radius) that each bin covers.
+        force : bool, optional
+            Flag indicating if the radial bins should be determined
         """
-        if not self.has_polar or force:
-            if self.has_cartesian:
-                self.compute_polar()
-            else:
-                logger.error('Cannot create radial profile. Radii of data points unknown.')
-                return
+        if not self.has_coordinates:
+            logger.error('Cannot create radial profile. WCS coordinates of data points unknown.')
+            return
 
-        sorted_indices = np.argsort(self.data['r'])
-        r_sorted = self.data['r'][sorted_indices].value
+        dx, dy = calc_xy_offset(ra=self.data['ra'], dec=self.data['dec'], ra_center=ra_center, dec_center=dec_center)
+        r = np.sqrt(dx**2 + dy**2)
+
+        sorted_indices = np.argsort(r)
+        r_sorted = r[sorted_indices].value
 
         bin_number = -np.ones(self.sample_size, dtype=np.int16)
 
