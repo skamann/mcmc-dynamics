@@ -4,12 +4,13 @@ import logging
 import matplotlib.pyplot as plt
 import numpy as np
 from astropy import units as u
+from astropy.coordinates import SkyCoord
 from astropy.table import QTable
+from scipy.stats import truncnorm
 
 from mcmc_dynamics.analysis import ModelFit, ConstantFit
 from mcmc_dynamics.utils.plots import ProfilePlot
 from mcmc_dynamics.utils.files import DataReader
-from mcmc_dynamics.parameter import Parameter
 
 
 logger = logging.getLogger(__name__)
@@ -29,30 +30,41 @@ if __name__ == "__main__":
     # DATA CREATION
     logging.basicConfig(level=logging.INFO)
     logger.info('Creating input data ...')
-    np.random.seed(args.seed)
+    rng = np.random.default_rng(args.seed)
 
+    # Model parameters
     v_sys = 0*u.km/u.s
     r_peak = 60.*u.arcsec
     a = 30.*u.arcsec
-    theta_0 = 2.*np.pi*np.random.random()*u.rad
-    sigma_max = (5. + 10.*np.random.random())*u.km/u.s
+    theta_0 = 2.*np.pi*rng.random()*u.rad
+    sigma_max = (5. + 10.*rng.random())*u.km/u.s
     v_max = args.vsigma*sigma_max
 
+    # Create mock sample of RA and Dec coordinates around random centre
+    sc = SkyCoord(56.345*u.deg, -26.675*u.deg)
+
+    r_max = (r_peak*args.rmax).value
+    tn = truncnorm
+    tn.random_state = rng
+    separation = tn.rvs(a=0, b=r_max, loc=0, scale=r_max/2., size=args.nstars)*r_peak.unit
+    position_angle = rng.uniform(-np.pi, np.pi, size=args.nstars)*u.rad
+    coordinates = sc.directional_offset_by(position_angle=position_angle, separation=separation)
+
     data = DataReader({
-        'r': r_peak*args.rmax*np.random.uniform(0, 1, size=args.nstars)**0.9,
-        'theta': u.rad*np.random.uniform(0, 2.*np.pi, size=args.nstars),
+        'ra': coordinates.ra,
+        'dec': coordinates.dec,
         'v': np.zeros((args.nstars,), dtype=np.float64)*u.km/u.s,
         'verr': np.zeros((args.nstars,), dtype=np.float64)*u.km/u.s})
 
-    x_pa = data.data['r'] * np.sin(data.data['theta'] - theta_0)
-    v_los = v_sys + 2. * (v_max / r_peak) * x_pa / (1. + (data.data['r'] / r_peak) ** 2)
+    # Create mock velocity sample
+    x_pa = separation * np.sin(position_angle + np.pi/2.*u.rad - theta_0)  # PI/2 offset because theta_0 measured W->N
+    v_los = v_sys + 2. * (v_max / r_peak) * x_pa / (1. + (separation / r_peak) ** 2)
 
-    sigma_los = sigma_max / (1. + (data.data['r'] / a) ** 2) ** 0.25
-    v_los += sigma_los*np.random.randn(args.nstars)
+    sigma_los = sigma_max / (1. + (separation / a) ** 2) ** 0.25
+    v_los += rng.normal(scale=sigma_los, size=args.nstars)*sigma_los.unit
 
-    uncertainties = args.errscale*sigma_los*np.random.lognormal(0, 0.5, size=args.nstars)
-
-    v_los += uncertainties*np.random.randn(args.nstars)
+    uncertainties = args.errscale*sigma_los*rng.lognormal(0, 0.5, size=args.nstars)
+    v_los += rng.normal(scale=uncertainties, size=args.nstars)*uncertainties.unit
 
     data.data['v'] = v_los
     data.data['verr'] = uncertainties
@@ -60,7 +72,7 @@ if __name__ == "__main__":
 
     # FIT IN RADIAL BINS
     logger.info('Analysing kinematics in radial bins ...')
-    data.make_radial_bins(nstars=50, dlogr=0.1)
+    data.make_radial_bins(ra_center=sc.ra, dec_center=sc.dec, nstars=50, dlogr=0.1)
 
     # prepare container for storing results from analysis in radial bins
     radial_bins = []
@@ -77,6 +89,8 @@ if __name__ == "__main__":
         cf.parameters['v_maxx'].set(initials='rng.normal(loc=0, scale=3, size=n)')
         # cf.parameters.add(name='theta_0', value=theta_0, min=0, max=2.*np.pi, fixed=True)
         cf.parameters['v_maxy'].set(initials='rng.normal(loc=0, scale=3, size=n)')  # , expr="v_maxx*tan(theta_0)")
+        cf.parameters['ra_center'].set(value=sc.ra, fixed=True)
+        cf.parameters['dec_center'].set(value=sc.dec, fixed=True)
 
         if i == 0:
             cf.parameters.pretty_print()
@@ -85,7 +99,8 @@ if __name__ == "__main__":
         # _ = cf.create_triangle_plot(chain=sampler.chain, n_burn=50)
         # plt.show()
 
-        results_i = (data_i.data['r'].mean(), data_i.data['r'].min(), data_i.data['r'].max())
+        r_in_bin = separation[data.data['bin'] == i]
+        results_i = (r_in_bin.mean(), r_in_bin.min(), r_in_bin.max())
 
         bestfit_values = cf.compute_bestfit_values(chain=sampler.chain, n_burn=50)
         for name, parameter in cf.parameters.items():
@@ -117,8 +132,8 @@ if __name__ == "__main__":
 
     # modify initials for some parameters. Radii are initialized using beta-function between min and max radius covered
     # by data
-    r_min = data.data['r'].min()
-    r_max = data.data['r'].max()
+    r_min = separation.min().to(u.arcsec)
+    r_max = separation.max().to(u.arcsec)
     mf.parameters['sigma_max'].set(initials='rng.lognormal(mean={0:.2f}, sigma=0.5, size=n)'.format(np.log(10.)))
     mf.parameters['a'].set(
         min=r_min, max=r_max, initials='{0}*rng.beta(a=2, b=5, size=n) + {1}'.format((r_max-r_min).value, r_min.value))
@@ -127,6 +142,10 @@ if __name__ == "__main__":
     mf.parameters['v_maxy'].set(initials='rng.normal(loc=0, scale=3, size=n)')  # , expr="v_maxx*tan(theta_0)")
     mf.parameters['r_peak'].set(
         min=r_min, max=r_max, initials='{0}*rng.beta(a=2, b=5, size=n) + {1}'.format((r_max-r_min).value, r_min.value))
+    mf.parameters['ra_center'].set(value=sc.ra, fixed=False,
+                                   initials='rng.normal(loc={0}, scale={1}, size=n)'.format(sc.ra.value, a.to(u.deg).value))
+    mf.parameters['dec_center'].set(value=sc.dec, fixed=False,
+                                   initials='rng.normal(loc={0}, scale={1}, size=n)'.format(sc.dec.value, a.to(u.deg).value))
     mf.parameters.pretty_print()
 
     # run model calculation

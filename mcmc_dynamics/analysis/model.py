@@ -2,14 +2,13 @@
 import inspect
 import logging
 import numpy as np
-import importlib.resources as pkg_resources
+from importlib.resources import files
 from astropy import units as u
-from mcmc_dynamics.utils.files import DataReader
-from astropy.table import Table, QTable
+from astropy.table import Table
 from .runner import Runner
 from .. import config
 from ..parameter import Parameters
-from ..utils.coordinates import get_amplitude_and_angle
+from ..utils.coordinates import calc_xy_offset, get_amplitude_and_angle
 
 
 logger = logging.getLogger(__name__)
@@ -53,32 +52,34 @@ class ModelFit(Runner):
        https://ui.adsabs.harvard.edu/abs/1967MNRAS.136..101L/abstract
     .. _Plummer (1911):
        https://ui.adsabs.harvard.edu/abs/1911MNRAS..71..460P/abstract
+
+    Parameters
+    ----------
+    data : instance of DataReader
+        The observed data for a set of n stars. The instance must provide
+        at least the radii, the position angles, the velocities, and their
+        uncertainties.
+    parameters : instance of Parameters, optional
+        The model parameters.
+    kwargs :
+        Any additional keyword arguments are passed on to the
+        initialization of the parent class.
     """
-    MODEL_PARAMETERS = ['v_sys', 'v_maxx', 'v_maxy', 'r_peak', 'sigma_max', 'a', 'dx','dy']
-    OBSERVABLES = {'v': u.km/u.s, 'verr': u.km/u.s, 'x': u.arcsec, 'y': u.arcsec}
+    MODEL_PARAMETERS = ['v_sys', 'v_maxx', 'v_maxy', 'r_peak', 'sigma_max', 'a', 'ra_center', 'dec_center']
+    OBSERVABLES = {'v': u.km/u.s, 'verr': u.km/u.s, 'ra': u.deg, 'dec': u.deg}
+
+    parameters_file = files(config).joinpath('model.json')
 
     def __init__(self, data, parameters=None, **kwargs):
         """
         Initialize a new instance of the ModelFit class
-
-        Parameters
-        ----------
-        data : instance of DataReader
-            The observed data for a set of n stars. The instance must provide
-            at least the radii, the position angles, the velocities, and their
-            uncertainties.
-        parameters: instance of Parameters, optional
-            The model parameters.
-        kwargs :
-            Any additional keyword arguments are passed on to the
-            initialization of the parent class.
         """
         # required observables
-        self.x = None
-        self.y = None
+        self.ra = None
+        self.dec = None
 
         if parameters is None:
-            parameters = Parameters().load(pkg_resources.open_text(config, 'model.json'))
+            parameters = Parameters().load(self.parameters_file)
 
         super(ModelFit, self).__init__(data=data, parameters=parameters, **kwargs)
 
@@ -86,7 +87,7 @@ class ModelFit(Runner):
         self.rotation_parameters = inspect.signature(self.rotation_model).parameters
         self.dispersion_parameters = inspect.signature(self.dispersion_model).parameters
 
-    def dispersion_model(self, sigma_max,dx,dy, a=1, **kwargs):
+    def dispersion_model(self, sigma_max, ra_center, dec_center, a=1, **kwargs):
         """
         The method calculates the line-of-sight velocity dispersion at the
         positions (r, theta) of the available data points.
@@ -100,6 +101,10 @@ class ModelFit(Runner):
         ----------
         sigma_max : float
             The central velocity dispersion of the model.
+        ra_center : float
+            The right ascension of the model centre.
+        dec_center : float
+            The declination of the model centre.
         a : float
             The scale radius of the model.
         kwargs
@@ -115,39 +120,11 @@ class ModelFit(Runner):
             raise IOError('Unknown keyword argument(s) "{0}" for method {1}.dispersion_model.'.format(
                 ', '.join(kwargs.keys()), self.__class__.__name__))
 
-        r = self.compute_r(dx,dy)
-        return sigma_max / (1. + (r) ** 2 / a ** 2) ** 0.25
+        dx, dy = calc_xy_offset(ra=self.ra, dec=self.dec, ra_center=ra_center, dec_center=dec_center)
+        r = np.sqrt(dx**2 + dy**2)
+        return sigma_max / (1. + r ** 2 / a ** 2) ** 0.25
 
-    def compute_theta(self,dx,dy):
-        """
-
-             Parameters
-             ----------
-             dx - x offset to the center
-             dy - y offset to the center
-
-             Returns
-             ----------
-             Returns the theta value after including the offsets to the x and y coordinates
-             """
-        return np.arctan2(self.y + dy, self.x + dx)
-
-    def compute_r(self,dx,dy):
-        """
-
-        Parameters
-        ----------
-        dx - x offset to the center
-        dy - y offset to the center
-
-        Returns
-        -------
-        Returns the radius of the coordinates after including the offsets to the x and y coordinates
-
-        """
-        return np.sqrt((self.x+dx)**2 + (self.y+dy)**2)
-
-    def rotation_model(self, v_sys, v_maxx, v_maxy, dx, dy, r_peak=None, **kwargs):
+    def rotation_model(self, v_sys, v_maxx, v_maxy, ra_center, dec_center, r_peak=None, **kwargs):
         """
         The method calculates the line-of-sight velocity at the positions
         (r, theta) of the available data points.
@@ -169,6 +146,10 @@ class ModelFit(Runner):
             The x-component of the rotation amplitude of the model.
         v_maxy : float
             The y-component of the rotation amplitude of the model.
+        ra_center : float
+            The right ascension of the model centre.
+        dec_center : float
+            The declination of the model centre.
         r_peak : float
             The position of the peak of the rotation curve.
         kwargs
@@ -184,13 +165,14 @@ class ModelFit(Runner):
             raise IOError('Unknown keyword argument(s) "{0}" for method {1}.rotation_model.'.format(
                 ', '.join(kwargs.keys()), self.__class__.__name__))
 
-        r = self.compute_r(dx,dy)
+        dx, dy = calc_xy_offset(ra=self.ra, dec=self.dec, ra_center=ra_center, dec_center=dec_center)
+        r = np.sqrt(dx**2 + dy**2)
         if r_peak is None:
             r_peak = np.median(r)
 
         v_max = np.sqrt(v_maxx**2 + v_maxy**2)
         theta_0 = np.arctan2(v_maxy, v_maxx)
-        theta = self.compute_theta(dx,dy)
+        theta = np.arctan2(dy, dx)
         x_pa = r * np.sin(theta - theta_0)
         return v_sys + 2. * (v_max / r_peak) * x_pa / (1. + (r / r_peak) ** 2)
 
@@ -259,7 +241,11 @@ class ModelFit(Runner):
 
         Returns
         -------
-
+        profile : instance of astropy.table.Table
+            The output table will contain the values of the rotation amplitude
+            and the dispersion predicted by the model for the requested radii.
+            It will further contain the lower and upper 1sigma and 3sigma
+            limits for those values.
         """
         # collect parameters
         fitted_models = {}
@@ -329,7 +315,7 @@ class ModelFit(Runner):
 
     def compute_theta_vmax(self, chain, n_burn, return_samples=False):
 
-        pars = self.convert_to_paramaters(chain=chain, n_burn=n_burn)
+        pars = self.convert_to_parameters(chain=chain, n_burn=n_burn)
 
         results, v_max, _theta = get_amplitude_and_angle(pars, return_samples=return_samples)
 
@@ -362,8 +348,10 @@ class ModelFitGB(ModelFit):
     2dim. source density of the target distribution at the position of each
     velocity measurement, relative to a central value.
     """
-    MODEL_PARAMETERS = ['v_back', 'sigma_back', 'f_back', 'v_sys', 'v_maxx', 'v_maxy', 'r_peak', 'sigma_max', 'a']
-    OBSERVABLES = {'v': u.km/u.s, 'verr': u.km/u.s, 'r': u.arcsec, 'theta': u.rad, 'density': u.dimensionless_unscaled}
+    MODEL_PARAMETERS = ModelFit.MODEL_PARAMETERS + ['v_back', 'sigma_back', 'f_back']
+    OBSERVABLES = dict(ModelFit.OBSERVABLES, **{'density': u.dimensionless_unscaled})
+
+    parameters_file = files(config).joinpath('model_with_background.json')
 
     def __init__(self, data, parameters=None, **kwargs):
         """
@@ -392,7 +380,7 @@ class ModelFitGB(ModelFit):
             logger.error('Class ConstantFitGB does not support additional background components.')
 
         if parameters is None:
-            parameters = Parameters().load(pkg_resources.open_text(config, 'model_with_background.json'))
+            parameters = Parameters().load(self.parameters_file)
 
         # call parent class initialisation.
         super(ModelFitGB, self).__init__(data=data, parameters=parameters, **kwargs)
@@ -442,7 +430,7 @@ class ModelFitGB(ModelFit):
         for parameter, value in parameter_dict.items():
             if parameter in self.rotation_parameters.keys():
                 kwargs_rotation[parameter] = value
-            elif parameter in self.dispersion_parameters.keys():
+            if parameter in self.dispersion_parameters.keys():
                 kwargs_dispersion[parameter] = value
             else:
                 continue
@@ -492,12 +480,15 @@ class ModelFitGB(ModelFit):
         kwargs_rotation = {}
         kwargs_dispersion = {}
 
+        used = False
         for parameter, value in parameters.items():
             if parameter in self.rotation_parameters.keys():
                 kwargs_rotation[parameter] = value
-            elif parameter in self.dispersion_parameters.keys():
+                used = True
+            if parameter in self.dispersion_parameters.keys():
                 kwargs_dispersion[parameter] = value
-            else:
+                used = True
+            if not used:
                 raise IOError('Unknown model parameter "{0}" provided.'.format(parameter))
 
         # evaluate models of positions of data points
@@ -516,26 +507,25 @@ class ModelFitGB(ModelFit):
                 m*np.exp(lnlike_cluster - max_lnlike) + (1. - m)*np.exp(lnlike_back - max_lnlike))
 
 
-class ModelFitNonGB(ModelFit):
-
+class ModelFitConstantBackground(ModelFit):
     """
-    A child class of ModelFit that includes a background component
-    approximated by a Gaussian in radial velocity space.
+    A child class of ModelFit that includes a constant background component,
+    i.e. a background for which no parameters are altered during the analysis.
 
-    Compared to the parent ModelFit class, this class uses three additional
-    parameters. `v_back` and `sigma_back` are the shape parameters of the
-    Gaussian used to describe the distribution of background velocities.
-    `f_back` measures the fractional contribution of background sources to
-    the observed source density.
+    Compared to the parent ModelFit class, this class uses one additional free
+    parameter. `f_back` measures the fractional contribution of background
+    sources to the observed source density.
 
     As an additional observable, `density` must be provided, indicating the
     2dim. source density of the target distribution at the position of each
     velocity measurement, relative to a central value.
     """
-    MODEL_PARAMETERS = ['f_back', 'v_sys', 'v_maxx', 'v_maxy', 'r_peak', 'sigma_max', 'a']
-    OBSERVABLES = {'v': u.km/u.s, 'verr': u.km/u.s, 'r': u.arcsec, 'theta': u.rad, 'density': u.dimensionless_unscaled}
+    MODEL_PARAMETERS = ModelFit.MODEL_PARAMETERS + ['f_back', ]
+    OBSERVABLES = dict(ModelFit.OBSERVABLES, **{'density': u.dimensionless_unscaled})
 
-    def __init__(self, data, parameters=None, **kwargs):
+    parameters_file = files(config).joinpath('model_with_background.json')
+
+    def __init__(self, data, background, parameters=None, **kwargs):
         """
         Initialize a new instance of the ConstantFitGB class.
 
@@ -547,6 +537,10 @@ class ModelFitNonGB(ModelFit):
             ConstantFit class, the data also need to include a column named
             'density', containing the normalized stellar surface density at
             the location of each star.
+        background : instance of a mcmc_dynamics.background class.
+            The instance must be callable, take the measured velocities and
+            their uncertainties as arguments, and return the likelihoods for
+            the background population.
         parameters : instance of Parameters, optional
             The model parameters
         kwargs
@@ -557,12 +551,10 @@ class ModelFitNonGB(ModelFit):
         self.density = None
 
         if parameters is None:
-            parameters = Parameters().load(pkg_resources.open_text(config, 'model_with_background.json'))
-
-        background = kwargs.pop('background', None)
+            parameters = Parameters().load(self.parameters_file)
 
         # call parent class initialisation.
-        super(ModelFitNonGB, self).__init__(data=data, parameters=parameters, **kwargs)
+        super(ModelFitConstantBackground, self).__init__(data=data, parameters=parameters, **kwargs)
 
         self.background = background
         self.lnlike_background = self.background(self.v, self.verr)
@@ -571,24 +563,19 @@ class ModelFitNonGB(ModelFit):
         """
         Calculate the log likelihood of the current model given the data.
 
-        It is assumed that the distribution follows a Gaussian distribution.
-        Therefore, the probability p of a single measurement (v, v_err) is
-        estimated as:
-
-        p = exp{-(v - v0)**2/[2*(v_disp^2 + v_err^2)]}/[2.*(v_disp^2 + v_err^2)]
-
-        Then the log likelihood is then determined by summing over the
-        probabilities of all measurements and taking the ln: loglike = ln(sum(p))
-
         Parameters
         ----------
         values : array_like
             The current values of the model parameters.
+        no_sum : bool, optional
+            Flag indicating whether the likelihoods of the individual stars
+            should be summed up before they are returned.
 
         Returns
         -------
-        loglike : float
-            The log likelihood of the data given the current model.
+        loglike : float or 1d array
+            The log likelihood of the data given the current model. The type
+            of output depends on the `no_sum` parameter.
         """
         parameter_dict = self.fetch_parameter_values(values)
 
@@ -605,7 +592,7 @@ class ModelFitNonGB(ModelFit):
         for parameter, value in parameter_dict.items():
             if parameter in self.rotation_parameters.keys():
                 kwargs_rotation[parameter] = value
-            elif parameter in self.dispersion_parameters.keys():
+            if parameter in self.dispersion_parameters.keys():
                 kwargs_dispersion[parameter] = value
             else:
                 continue
@@ -633,6 +620,23 @@ class ModelFitNonGB(ModelFit):
             return lnlike.sum()
 
     def calculate_membership_probabilities(self, chain, n_burn):
+        """
+        Calculate a posteriori membership probabilities for all sources.
+
+        Parameters
+        ----------
+        chain : ndarray
+            The MCMC chain containing the parameters sampled during the
+            analysis.
+        n_burn : int
+            The number of steps at the beginning of the chain discarded as
+            burn-in.
+
+        Returns
+        -------
+        p_member : 1D array
+            The cluster membership probabilities for all stars.
+        """
 
         bestfit = self.compute_bestfit_values(chain=chain, n_burn=n_burn)
         parameters = dict(zip(bestfit.columns, [bestfit.loc['median'][c] for c in bestfit.columns]))
@@ -653,12 +657,15 @@ class ModelFitNonGB(ModelFit):
         kwargs_rotation = {}
         kwargs_dispersion = {}
 
+        used = False
         for parameter, value in parameters.items():
             if parameter in self.rotation_parameters.keys():
                 kwargs_rotation[parameter] = value
-            elif parameter in self.dispersion_parameters.keys():
+                used = True
+            if parameter in self.dispersion_parameters.keys():
                 kwargs_dispersion[parameter] = value
-            else:
+                used = True
+            if not used:
                 raise IOError('Unknown model parameter "{0}" provided.'.format(parameter))
 
         # evaluate models of positions of data points

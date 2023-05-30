@@ -35,6 +35,8 @@ class Runner(object):
     MODEL_PARAMETERS = []
     OBSERVABLES = {'v': u.km/u.s, 'verr': u.km/u.s}
 
+    parameters_file = None
+
     def __init__(self, data, parameters, seed=123, background=None, **kwargs):
         """
         Initializes a new instance of the Runner class.
@@ -64,15 +66,10 @@ class Runner(object):
         assert isinstance(data, DataReader), "'data' must be instance of {0}".format(DataReader.__module__)
         self.data = data
 
-        # if cartesian coordinates are required but not present, check if they can be recovered
-        if 'x' in self.OBSERVABLES or 'y' in self.OBSERVABLES:
-            if not data.has_cartesian and data.has_polar:
-                data.compute_cartesian()
-
-        # if polar coordinates are required but not present, check if they can be recovered
-        if 'r' in self.OBSERVABLES or 'theta' in self.OBSERVABLES:
-            if not data.has_polar and data.has_cartesian:
-                data.compute_polar()
+        # if WCS coordinates are required, check if they are available
+        if 'ra' in self.OBSERVABLES or 'dec' in self.OBSERVABLES:
+            if not data.has_coordinates:
+                raise IOError('Missing WCS coordinates of observed data.')
 
         # make sure all required columns are available
         for required, unit in self.OBSERVABLES.items():
@@ -107,6 +104,13 @@ class Runner(object):
         else:
             self.lnlike_background = None
             self.pmember = None
+
+    @classmethod
+    def default_parameters(cls):
+        if cls.parameters_file is None:
+            raise NotImplementedError
+
+        return Parameters().load(open(cls.parameters_file))
 
     @property
     def n_data(self):
@@ -517,7 +521,24 @@ class Runner(object):
         last = chain[:, -1, :]
         return last
 
-    def convert_to_paramaters(self, chain, n_burn):
+    def convert_to_parameters(self, chain, n_burn):
+        """
+        Converts the parameters values stored in the MCMC chain into a
+        dictionary containing one entry per parameter.
+
+        Parameters
+        ----------
+        chain : ndarray
+            The chain returned by the MCMC analysis
+        n_burn : int
+            The number of steps at the beginning of the chain discarded as
+            burn-in.
+
+        Returns
+        -------
+        pars : dict
+            The model parameters sampled by the chain as a dictionary.
+        """
 
         pars = {}
         n_samples = chain.shape[0]*(chain.shape[1] - n_burn)
