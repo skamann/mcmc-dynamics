@@ -87,8 +87,8 @@ if __name__ == "__main__":
         # modify function for creating initials for chains
         cf.parameters['sigma_max'].set(initials='rng.lognormal(mean={0:.2f}, sigma=0.5, size=n)'.format(np.log(10.)))
         cf.parameters['v_maxx'].set(initials='rng.normal(loc=0, scale=3, size=n)')
-        # cf.parameters.add(name='theta_0', value=theta_0, min=0, max=2.*np.pi, fixed=True)
         cf.parameters['v_maxy'].set(initials='rng.normal(loc=0, scale=3, size=n)')  # , expr="v_maxx*tan(theta_0)")
+        # cf.parameters.add(name='theta_0', value=theta_0, min=0, max=2.*np.pi, fixed=True)
         cf.parameters['ra_center'].set(value=sc.ra, fixed=True)
         cf.parameters['dec_center'].set(value=sc.dec, fixed=True)
 
