@@ -547,7 +547,7 @@ class Parameters(OrderedDict):
         dump(), loads(), json.load()
 
         """
-        return self.loads(fp.read(), **kws)
+        return self.loads(fp.read_text(), **kws)
 
 
 class Parameter(object):

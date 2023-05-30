@@ -4,7 +4,10 @@ import uuid
 import numpy as np
 import pandas as pd
 import cjam
-from importlib.resources import files
+try:
+    from importlib.resources import files
+except ImportError:  # for Python v<3.9
+    from importlib_resources import files
 from multiprocessing import Pool
 from scipy import stats
 from astropy import units as u

@@ -1,7 +1,10 @@
 import inspect
 import logging
 import numpy as np
-from importlib.resources import files
+try:
+    from importlib.resources import files
+except ImportError:  # for Python v<3.9
+    from importlib_resources import files
 from astropy import units as u
 
 from .runner import Runner
