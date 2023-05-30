@@ -1,6 +1,7 @@
 import logging
 import json
 # import simplejson as json
+import pathlib
 import numpy as np
 from copy import deepcopy
 from collections import OrderedDict
@@ -547,7 +548,11 @@ class Parameters(OrderedDict):
         dump(), loads(), json.load()
 
         """
-        return self.loads(fp.read_text(), **kws)
+        # need to check if an instance of a Path or an open file object was provided
+        if isinstance(fp, pathlib.Path):
+            return self.loads(fp.read_text(), **kws)
+        else:
+            return self.loads(fp.read(), **kws)
 
 
 class Parameter(object):
