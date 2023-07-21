@@ -18,8 +18,11 @@ def find_barq_limits(q, parameters=None):
 
     lower_limit_q_deprojected = 0.05
 
-    min_cosi2 = (min_q**2 - lower_limit_q_deprojected ** 2) / (1. - lower_limit_q_deprojected ** 2)
-    barq_min = np.sqrt((median_q ** 2 - min_cosi2) / (1. - min_cosi2))
+    if min_q < 1:
+        min_cosi2 = (min_q**2 - lower_limit_q_deprojected ** 2) / (1. - lower_limit_q_deprojected ** 2)
+        barq_min = np.sqrt((median_q ** 2 - min_cosi2) / (1. - min_cosi2))
+    else:
+        barq_min = 0
     barq_max = median_q
 
     # make sure limits on barq are correct in the Parameters instance if provided.

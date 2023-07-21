@@ -230,12 +230,15 @@ class Axisymmetric(Runner):
 
         with printoptions(precision=3):
             logstr = 'CJAM input parameters for {0}: '.format(unique_id)
-            logstr += 'd={d:.2f}, mlr={mlr}, barq={barq:.3f}, kappa={kappa}'.format(**current_parameters)
+            logstr += 'd={d:.2f}, mlr={mlr}, barq={barq:.3f}, kappa=[{kappa_x}, {kappa_y}]'.format(**current_parameters)
             logger.debug(logstr)
 
         # convert barq into inclination value
-        incl = np.arccos(np.sqrt(
-            (self.median_q**2 - current_parameters['barq']**2)/(1. - current_parameters['barq']**2)))
+        if current_parameters['barq'] < 1:
+            incl = np.arccos(np.sqrt(
+                (self.median_q**2 - current_parameters['barq']**2)/(1. - current_parameters['barq']**2)))
+        else:
+            incl = 0.*u.rad
 
         # if we are using a MGE grid instead of a single MGE profile,
         # pick the MGE profile corresponding to the grid point closest to the offset
@@ -262,7 +265,7 @@ class Axisymmetric(Runner):
         theta0 = np.arctan2(current_parameters['kappa_y'], current_parameters['kappa_x'])
 
         _x, _y = calc_xy_offset(ra=self.ra, dec=self.dec, ra_center=current_parameters['ra_center'],
-                                dec_center=current_parameters['delta_y'])
+                                dec_center=current_parameters['dec_center'])
 
         x = _x * np.cos(theta0) + _y * np.sin(theta0)
         y = -_x * np.sin(theta0) + _y * np.cos(theta0)

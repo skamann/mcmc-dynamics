@@ -391,11 +391,8 @@ class Runner(object):
         # check if starting values fulfil priors
         for i in range(n_walkers):
             if not np.isfinite(self.lnprior(pos[i])):
-                print(self.fitted_parameters)
-                print(pos[i])
                 raise ValueError(
                     "Invalid initial guesses for walker {0}: {1}={2}".format(i, self.fitted_parameters, pos[i]))
-
 
         # start MCMC
         if n_threads > 1:
