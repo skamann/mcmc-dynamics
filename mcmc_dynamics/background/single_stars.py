@@ -1,12 +1,18 @@
 import logging
 import numpy as np
 from astropy import units as u
+try:
+    from importlib.resources import files
+except ImportError:  # for Python v<3.9
+    from importlib_resources import files
 
+from .background import Background
+from .. import config
 
 logger = logging.getLogger(__name__)
 
 
-class SingleStars(object):
+class SingleStars(Background):
     """
     Set up a background population consisting of M individual stars that are
     only characterized by their radial velocities.
@@ -23,41 +29,36 @@ class SingleStars(object):
 
     where sigma_int is a global scaling parameter that is defaulted to zero.
     """
-    def __init__(self, v):
-        """
-        Initialize a new instance of the SingleStar class.
+    parameters_file = files(config).joinpath('single_stars_background.json')
 
-        Parameters
-        ----------
-        v : array_like
-            The radial velocities of the stars used to model the background
-            population.
+    def __init__(self, v: u.Quantity, n_stars: int = None):
         """
+        :param v: The radial velocities of the stars used to model the
+            background population.
+        :param n_stars: The number of stars for which the background is
+            modeled.
+        """
+        super(SingleStars, self).__init__(n_stars=n_stars)
+
         self.v = u.Quantity(v)
         if self.v.unit.is_unity():
             self.v *= u.km/u.s
             logger.warning('Missing units for <v> values. Assuming {0}.'.format(self.v.unit))
-        self.n_stars = self.v.size
+        self.n_model = self.v.size
+        self.n_stars = n_stars
 
-    def __call__(self, v, verr, sigma_int=0*u.km/u.s):
+    def lnlike(self, v: np.ndarray, verr: np.ndarray, sigma_int: u.Quantity = 0*u.km/u.s) -> np.ndarray:
         """
-        Calculates the log-likelihood for each provided velocity that is is
+        Calculates the log-likelihood for each provided velocity that it is
         part of the background population.
 
-        Parameters
-        ----------
-        v : array_like
-            The radial velocities for which the log-likelihoods are returned.
-        verr : array_like
-            The uncertainties taylored to the provided velocities. Array must
-            have same shape as 'v'.
-        sigma_int : float, optional
-            Global scaling parameter for the widths of the Gaussian kernels.
-
-        Returns
-        -------
-        lnlike : nd_array
-            The log-likelihoods of the provided stars.
+        :param v: The radial velocities for which the log-likelihoods are
+            returned.
+        :param verr: The uncertainties tailored to the provided velocities.
+            Array must have same shape as 'v'.
+        :param sigma_int: Global scaling parameter for the widths of the
+            Gaussian kernels.
+        :return: The log-likelihoods of the provided stars.
         """
         # Important: when calculating the log-likelihoods, the exponents of the exp-functions in the Gaussian kernels
         # can be very small. To avoid under/-overflowing, the log-sum-exp trick is used. it works by subtracting from
@@ -73,16 +74,9 @@ class SingleStars(object):
         exp_coeff = -(np.subtract.outer(self.v, v)) ** 2 / (2. * norm)
         exp_coeff_max = np.max(exp_coeff, axis=0)
         lnlike = exp_coeff_max + np.log(np.sum(np.exp(exp_coeff - exp_coeff_max)/
-                                               (np.sqrt(2.*np.pi*norm.value)), axis=0)) - np.log(self.n_stars)
+                                               (np.sqrt(2.*np.pi*norm.value)), axis=0)) - np.log(self.n_model)
         return lnlike
-        lnlike = np.zeros(len(v), dtype=np.float64)
 
-        for i in range(len(v)):
-            norm = sigma_int**2 + verr[i]**2
-            exp_coeff = -(self.v - v[i])**2/(2.*norm)
-            exp_coeff_max = exp_coeff.max()
+    def __call__(self, sigma_int: float) -> tuple[np.ndarray, np.ndarray]:
 
-            lnlike[i] = exp_coeff.max() + np.log(np.sum(
-                np.exp(exp_coeff - exp_coeff_max)/(np.sqrt(2.*np.pi*norm.value)))) - np.log(self.n_stars)
-
-        return lnlike
+        raise NotImplementedError

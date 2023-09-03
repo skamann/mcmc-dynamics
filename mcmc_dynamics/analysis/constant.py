@@ -6,35 +6,58 @@ try:
 except ImportError:  # for Python v<3.9
     from importlib_resources import files
 from astropy import units as u
+from astropy.table import QTable
 
 from .runner import Runner
 from .. import config
 from ..parameter import Parameters
 from ..utils.coordinates import calc_xy_offset, get_amplitude_and_angle
+from ..utils.files import DataReader
 
 logger = logging.getLogger(__name__)
 
 
 class ConstantFit(Runner):
+    """
+    The purpose of the ModelFit class is to fit the kinematics of a stellar
+    population using a constant rotation field and velocity dispersion.
+
+    Rotation is implemented by varying the systemic velocity $v_{\\rm SYS}$ as
+    a function of position angle $\\theta$ as follows.
+
+    $$
+    v_{\\rm LOS}(\\theta) = v_{\\rm SYS} + v_{\\rm max}\\sin(
+        \\theta - \\theta_{0}).
+    $$
+
+    This implies that $\\theta_{0}$ points along the rotation axis, and that
+    the maximum velocity is found at $\\theta_{0} + \\pi/2$.
+
+    Position angles are determined using [numpy.arctan2(dy, dx)](https://numpy.org/doc/stable/reference/generated/numpy.arctan2.html#numpy-arctan2),
+    with `dx` and `dy` representing offsets from the assumed centre of
+    symmetry, calculated from the world coordinates of the data using the
+    function `calc_xy_offsets`.
+
+
+    As fitting angles can be difficult due to the discontinuity at $2\\pi$,
+    instead of $\\theta_0$, the $x$ and $y$ components of $v_{\\rm MAX}$ are
+    considered free parameters. Hence, the model has the following 7
+    parameters that can be optimized. `v_sys`, `v_maxx`, `v_maxy`,
+    `sigma_max`, `ra_center`, `dec_center`.
+    """
     MODEL_PARAMETERS = ['v_sys', 'sigma_max', 'v_maxx', 'v_maxy', 'ra_center', 'dec_center']
     OBSERVABLES = {'v': u.km / u.s, 'verr': u.km / u.s, 'ra': u.deg, 'dec': u.deg}
 
     parameters_file = files(config).joinpath('constant.json')
 
-    def __init__(self, data, parameters=None, **kwargs):
+    def __init__(self, data: DataReader, parameters: Parameters = None, **kwargs):
         """
-        Initialize a new instance of the ConstantFit class.
-
-        Parameters
-        ----------
-        data : instance of DataReader
-            The observed data for a set of n stars. The instance must provide
-            at least the velocities and their uncertainties.
-        parameters : instance of Parameters, optional
-            The model parameters.
-        kwargs
-            Any extra keyword arguments are forwarded to the initialization of
-            the super-class.
+        :param data: The observed data for a set of n stars. The instance must
+            provide at least the RA and Dec coordinates, velocities and their
+            uncertainties.
+        :param parameters: The model parameters.
+        :param kwargs: Any extra keyword arguments are forwarded to the
+            initialization of the parent class.
         """
         # required observables
         self.ra = None
@@ -49,23 +72,17 @@ class ConstantFit(Runner):
         self.rotation_parameters = inspect.signature(self.rotation_model).parameters
         self.dispersion_parameters = inspect.signature(self.dispersion_model).parameters
 
-    def dispersion_model(self, sigma_max, **kwargs):
+    def dispersion_model(self, sigma_max: float, **kwargs) -> np.ndarray:
         """
-        The method calculates the velocity dispersion at the positions of the
-        available data points.
+        Calculate the velocity dispersion at the positions of the available
+        data points.
 
-        Parameters
-        ----------
-        sigma_max : float
-            The velocity dispersion is assumed to be constant in this model.
-        kwargs
-            This method does not use any additional keyword arguments.
-
-        Returns
-        -------
-        sigma_los : ndarray
-            The model values of the velocity dispersion at the positions of
-            the individual data points.
+        :param sigma_max: The velocity dispersion is assumed to be constant
+            in this model.
+        :param kwargs: This method does not use any additional keyword
+            arguments.
+        :return: The model values of the velocity dispersion at the positions
+            of the individual data points.
         """
         if kwargs:
             raise IOError('Unknown keyword argument(s) "{0}" for method {1}.dispersion_model.'.format(
@@ -73,30 +90,22 @@ class ConstantFit(Runner):
 
         return sigma_max * np.ones(self.n_data, dtype=np.float64)
 
-    def rotation_model(self, v_sys, v_maxx, v_maxy, ra_center, dec_center, **kwargs):
+    def rotation_model(self, v_sys: u.Quantity, v_maxx: u.Quantity, v_maxy: u.Quantity, ra_center: u.Quantity,
+                       dec_center: u.Quantity, **kwargs) -> np.ndarray:
         """
-        The method calculates the rotation velocity at the positions of the
-        available data points.
+        Calculate the rotation velocity at the positions of the available data
+        points.
 
-        Parameters
-        ----------
-        v_sys : float
-            The constant systemic velocity of the model.
-        v_maxx : float
-            The x-component of the constant rotation velocity of the model.
-        v_maxy : float
-            The y-component of the constant rotation velocity of the model.
-        ra_center : instance of astropy.units.Quantity
-            The right ascension of the assumed center.
-        dec_center : instance of astropy.units.Quantity
-            The declination of the assumed center.
-        kwargs
-            This model does not use any additional keyword arguments.
-
-        Returns
-        -------
-        v_los : ndarrray
-             The values of the rotation velocity at the positions of the
+        :param v_sys: The constant systemic velocity of the model.
+        :param v_maxx: The x-component of the constant rotation velocity of
+            the model.
+        :param v_maxy: The y-component of the constant rotation velocity of
+            the model.
+        :param ra_center: The right ascension of the assumed center.
+        :param dec_center: The declination of the assumed center.
+        :param kwargs: This model does not use any additional keyword
+            arguments.
+        :return: The values of the rotation velocity at the positions of the
              individual data points.
         """
         if kwargs:
@@ -110,108 +119,68 @@ class ConstantFit(Runner):
         theta_0 = np.arctan2(v_maxy, v_maxx)
         return v_sys + v_max * np.sin(theta - theta_0)
 
-    def lnlike(self, values):
-        """
-        Calculate the log likelihood of the current model given the data.
+    def calculate_model_moments(self, **kwargs) -> tuple[np.ndarray, np.ndarray]:
+        """Calculate the first- and second-order moments predicted by the
+        model for a given set of parameters
 
-        It is assumed that the distribution follows a Gaussian distribution.
-        Therefore, the probability p of a single measurement (v, v_err) is
-        estimated as:
-
-        p = exp{-(v - v0)**2/[2*(v_disp^2 + v_err^2)]}/[2.*(v_disp^2 + v_err^2)]
-
-        Then the log likelihood is then determined by summing over the
-        probabilities of all measurements and taking the ln: loglike = ln(sum(p))
-
-        Parameters
-        ----------
-        values : array_like
-            The current values of the model parameters.
-
-        Returns
-        -------
-        loglike : float
-            The log likelihood of the data given the current model.
+        :param kwargs: The values of the model parameters. Note that only the
+            free parameters should be provided, in the order specified by the
+            instance of `Parameters`.
+        :return: The mean velocity predicted by the model at the positions of
+            the observations.
+        :return: The velocity dispersion predicted by the model at the
+            positions of the observations.
         """
         # Collect parameters for method calls to evaluate rotation and dispersion models.
         kwargs_rotation = {}
         kwargs_dispersion = {}
-
-        for parameter, value in self.fetch_parameter_values(values).items():
+        for parameter, value in kwargs.items():
             if parameter in self.rotation_parameters.keys():
                 kwargs_rotation[parameter] = value
             if parameter in self.dispersion_parameters.keys():
                 kwargs_dispersion[parameter] = value
             else:
                 continue
-                # raise IOError('Unknown model parameter "{0}" provided.'.format(parameter))
+                # logger.warning('Unknown model parameter "{0}" provided.'.format(parameter))
 
-        # evaluate models of positions of data points
+        # evaluate functions at positions of measurements
         v_los = self.rotation_model(**kwargs_rotation)
         sigma_los = self.dispersion_model(**kwargs_dispersion)
 
-        # calculate likelihood
-        return self._calculate_lnlike(v_los=v_los, sigma_los=sigma_los)
+        return v_los, sigma_los
 
-    def compute_theta_vmax(self, chain, n_burn, return_samples=False):
-        """
-        Compute the position angle `theta_0` and the amplitude of the rotation
-        field, `v_max`.
+    def compute_theta_vmax(self, chain: np.ndarray, n_burn: int,
+                           return_samples: bool = False) -> tuple[QTable, np.ndarray, np.ndarray, np.ndarray]:
+        """Computes the 16th, 50th, and 84th percentiles of the position angle
+        `theta_0` and rotation amplitude `v_max` distributions.
 
-        For each set of parameters available in the provided chain (ignoring
-        a using-provided number of steps at the beginning of each walker as
-        burn-in), the code will determine the values of `theta_0` and `v_max`
-        Afterwards, the median and the 16th and 84th percentiles of the
-        distributions thereby obtained are calculated and returned.
-
-        Note that the position angle if measured from north through east and
-        gives the orientation of the rotation axis.
-
-        Parameters
-        ----------
-        chain : ndarray
-            The chain returned by the MCMC analysis. Must be a 3dimensional
-            array with the different walkers as 0th index, the steps as 1st
-            index, and the parameters as 2nd index.
-        n_burn : int, optional
-            The burn-in for each walker that is discarded when calculating
-            the parameter statistics.
-        return_samples : bool, optional
-            Flag indicating if the full sets of calculated `theta_0` and
-            `v_max` values should be returned. By default, only the median
-            and 16th and 84th percentiles of each parameter are returned.
-
-        Returns
-        -------
-        results : instance of astropy.table.QTable
-            For each parameter, the table contains one column, providing the
-            calculated median, 84th, and 16th percentile in three rows.
-        v_max : ndarray
-            The calculated amplitude values for all available parameter sets.
-            Only returned if `return_samples` is set to True.
-        _theta : ndarray
-            The calculated position angle values for all available parameter
-            sets. Only returned if `return_samples` is set to True.
-        sigmas : ndarray
-            The available dispersion values. They are not used in any
-            calculation and only returned for consistency with other methods.
-            Only returned if `return_samples` is set to True.
+        :param chain: The array containing the parameter values sampled during
+            the MCMC analysis.
+        :param n_burn: The number of steps considered as burn-in that are
+            discarded when analysing the chain.
+        :param return_samples: Whether the raw values taken from the chain
+            should be returned in addition to their percentiles.
+        :return: The table contains the parameters as columns and the
+            percentiles as rows.
+        :return: The individual `v_max` values, if `return_samples=True`.
+        :return: The individual `theta_0` values, if `return_samples=True`.
+        :return: The individual `sigma` values, if `return_samples=True`.
         """
         pars = self.convert_to_parameters(chain=chain, n_burn=n_burn)
 
         results, v_max, _theta = get_amplitude_and_angle(pars, return_samples=return_samples)
 
         if results is None:
-            logger.error('Could not recover paramaters of rotation field in {}.compute_theta_vmax().'.format(
+            logger.error('Could not recover parameters of rotation field in {}.compute_theta_vmax().'.format(
                 self.__class__.__name__))
-            return None
+            return QTable(), np.array([]), np.array([]), np.array([])
         else:
             results['v_max'] *= self.units['v_maxx']
 
         if return_samples:
             return results, v_max, _theta, pars['sigma']
         else:
-            return results
+            return results, np.array([]), np.array([]), np.array([])
 
     # def leastsq(self, **kwargs):
     #     """
@@ -245,130 +214,3 @@ class ConstantFit(Runner):
     #     # perform least-squares analysis
     #     nll = lambda *args: -1. * self.lnlike(*args)
     #     return minimize(nll, initial_guess, method='Nelder-Mead')
-
-
-class ConstantFitGB(ConstantFit):
-    """
-    A child class of ConstantFit that includes a background component
-    approximated by a Gaussian in radial velocity space.
-    """
-
-    MODEL_PARAMETERS = ConstantFit.MODEL_PARAMETERS + ['v_back', 'sigma_back', 'f_back']
-    OBSERVABLES = dict(ConstantFit.OBSERVABLES, **{'density': u.dimensionless_unscaled})
-
-    parameters_file = files(config).joinpath('constant_with_background.json')
-
-    def __init__(self, data, parameters=None, **kwargs):
-        """
-        Initialize a new instance of the ConstantFitGB class.
-
-        Parameters
-        ----------
-        data : instance of DataReader
-            The observed data for a set of n stars. In addition to the
-            observables required to initialize an instance of the parent
-            ConstantFit class, the data also need to include a column named
-            'density', containing the normalized stellar surface density at
-            the location of each star.
-        parameters : instance of Parameters
-            The model parameters.
-        kwargs
-            Any additional keyword arguments are passed to the initialization
-            of the parent class.
-        """
-        # additionally required observables
-        self.density = None
-
-        if parameters is None:
-            parameters = Parameters().load(self.parameters_file)
-
-        # No additional background component is currently supported
-        background = kwargs.pop('background', None)
-        if background is not None:
-            logger.error('Class ConstantFitGB does not support additional background components.')
-
-        # call parent class initialisation.
-        super(ConstantFitGB, self).__init__(data=data, parameters=parameters, **kwargs)
-
-    def lnlike(self, values):
-        """
-        Calculate the log likelihood of the current model given the data.
-
-        It is assumed that the distribution follows a Gaussian distribution.
-        Therefore, the probability p of a single measurement (v, v_err) is
-        estimated as:
-
-        p = exp{-(v - v0)**2/[2*(v_disp^2 + v_err^2)]}/[2.*(v_disp^2 + v_err^2)]
-
-        Then the log likelihood is then determined by summing over the
-        probabilities of all measurements and taking the ln: loglike = ln(sum(p))
-
-        Parameters
-        ----------
-        values : array_like
-            The current values of the model parameters.
-
-        Returns
-        -------
-        loglike : float
-            The log likelihood of the data given the current model.
-        """
-        parameter_dict = self.fetch_parameter_values(values)
-
-        lnlike_cluster, lnlike_back, m = self._calculate_lnlike_cluster_back(parameter_dict)
-
-        max_lnlike = np.max([lnlike_cluster, lnlike_back], axis=0)
-
-        lnlike = max_lnlike + np.log(
-            m * np.exp(lnlike_cluster - max_lnlike) + (1. - m) * np.exp(lnlike_back - max_lnlike))
-        return lnlike.sum()
-
-    def _calculate_lnlike_cluster_back(self, parameters):
-
-        # calculate log-likelihoods for background population
-        v_back = parameters.pop('v_back')
-        sigma_back = parameters.pop('sigma_back')
-        f_back = parameters.pop('f_back')
-
-        norm = self.verr * self.verr + sigma_back * sigma_back
-        exponent = -0.5 * np.power(self.v - v_back, 2) / norm
-
-        lnlike_back = -0.5 * np.log(2. * np.pi * norm.value) + exponent
-
-        # get membership priors
-        m = self.density / (self.density + f_back)
-
-        # Collect parameters for method calls to evaluate rotation and dispersion models.
-        kwargs_rotation = {}
-        kwargs_dispersion = {}
-
-        for parameter, value in parameters.items():
-            if parameter in self.rotation_parameters.keys():
-                kwargs_rotation[parameter] = value
-            if parameter in self.dispersion_parameters.keys():
-                kwargs_dispersion[parameter] = value
-            else:
-                continue
-                # raise IOError('Unknown model parameter "{0}" provided.'.format(parameter))
-
-        # evaluate models of positions of data points
-        v_los = self.rotation_model(**kwargs_rotation)
-        sigma_los = self.dispersion_model(**kwargs_dispersion)
-
-        # calculate log-likelihoods for cluster population
-        norm = self.verr * self.verr + sigma_los * sigma_los
-        exponent = -0.5 * np.power(self.v - v_los, 2) / norm
-
-        lnlike_cluster = -0.5 * np.log(2. * np.pi * norm.value) + exponent
-
-        return lnlike_cluster, lnlike_back, m
-
-    def calculate_membership_probabilities(self, chain, n_burn):
-
-        bestfit = self.compute_bestfit_values(chain=chain, n_burn=n_burn)
-        parameters = dict(zip(bestfit.columns, [bestfit.loc['median'][c] for c in bestfit.columns]))
-        _ = parameters.pop('value')
-
-        lnlike_cluster, lnlike_back, m = self._calculate_lnlike_cluster_back(parameters)
-
-        return m * np.exp(lnlike_cluster) / (m * np.exp(lnlike_cluster) + (1. - m) * np.exp(lnlike_back))

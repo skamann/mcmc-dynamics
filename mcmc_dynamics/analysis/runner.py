@@ -1,3 +1,4 @@
+import inspect
 import logging
 import pickle
 import warnings
@@ -8,12 +9,12 @@ import emcee
 from pathos.multiprocessing import Pool
 from matplotlib import gridspec
 from matplotlib.collections import LineCollection
+from matplotlib.figure import Figure
 from matplotlib.ticker import MaxNLocator
 from astropy import units as u
 from astropy.table import QTable
 
 from ..parameter import Parameters
-from ..background import Gaussian, SingleStars
 from ..utils.files.data_reader import DataReader
 
 
@@ -27,9 +28,11 @@ class Runner(object):
 
     Classes that inherit from `Runner` must at least specify the observables
     and model parameters required by the analysis (see variables `OBSERVABLES`
-    and `MODEL_PARAMETERS`). Further, they need to define their own `lnlike`
-    method, which takes a set of parameter values as input in order to
-    calculate and return a log likelihood of the model given the data.
+    and `MODEL_PARAMETERS`). Further, they need to define their own method
+    {py:meth}`calculate_model_moments()<analysis.runner.Runner.calculate_model_moments>`,
+    which takes a dictionary of parameter values as input in order to
+    calculate and return the first and second order moments predicted by the
+    model at the locations of the observations.
     """
 
     MODEL_PARAMETERS = []
@@ -37,20 +40,19 @@ class Runner(object):
 
     parameters_file = None
 
-    def __init__(self, data, parameters, seed=123, background=None, **kwargs):
+    def __init__(self, data: DataReader, parameters: Parameters, seed: int = 123, background: callable = None,
+                 lnlike_background: np.ndarray = None, **kwargs):
         """
-        Initializes a new instance of the Runner class.
-
-        Parameters
-        ----------
-        data : instance of DataReader
-            The observed data.
-        parameters : instance of Parameters
-            The model parameters.
-        seed : int, optional
-            The seed used to initialize the random number generator.
-        kwargs :
-            This method does not take any additional keyword arguments.
+        :param data: The observed data.
+        :param parameters: The model parameters.
+        :param seed: The seed used to initialize the random number generator.
+        :param background: The callable used to calculate the likelihood of
+            the background population.
+        :param lnlike_background: In case a fixed background population is
+            used, the log-likelihoods of the stars belonging to the background
+            can be provided directly.
+        :param kwargs: This method does not take any additional keyword
+            arguments.
         """
         # check if any unsupported keyword arguments were provided
         assert not kwargs, "Unknown keyword arguments provided: {0}".format(kwargs)
@@ -61,19 +63,45 @@ class Runner(object):
         # required observables
         self.v = None
         self.verr = None
+        self.density = None  # Only for models including background component
 
         # sanity checks on data
         assert isinstance(data, DataReader), "'data' must be instance of {0}".format(DataReader.__module__)
         self.data = data
 
-        # if WCS coordinates are required, check if they are available
-        if 'ra' in self.OBSERVABLES or 'dec' in self.OBSERVABLES:
-            if not data.has_coordinates:
-                raise IOError('Missing WCS coordinates of observed data.')
+        # can only use background OR lnlike_background
+        if background is not None and lnlike_background is not None:
+            raise NotImplementedError('Cannot use a constant and a variable background at the same time.')
+
+        # in case a background is included in the model, we need a membership prior and new model parameters
+        self.background = background
+        if background is not None:
+            self.OBSERVABLES['density'] = u.dimensionless_unscaled
+
+            # check calling sequence of background function. Any input parameter that is not an observable is
+            # considered as additional model parameter.
+            sig = inspect.signature(self.background)
+            self.background_parameters = []
+            for parameter in sig.parameters.keys():
+                if parameter in self.OBSERVABLES.keys() or parameter == 'kwargs':
+                    continue
+                self.background_parameters.append(parameter)
+            self.MODEL_PARAMETERS.extend(self.background_parameters)
+            logger.info(f'Background function provided requires the following parameters: {self.background_parameters}')
+        else:
+            self.background_parameters = None
+
+        if lnlike_background is not None:
+            if not len(lnlike_background) == self.n_data:
+                raise IOError('Number of background likelihoods does not match number of observations.')
+            self.lnlike_background = lnlike_background
+        else:
+            self.lnlike_background = None
 
         # make sure all required columns are available
         for required, unit in self.OBSERVABLES.items():
-            assert required in data.data.columns, "Input data missing required column <{0}>".format(required)
+            if required not in data.data.columns:
+                raise IOError("Input data missing required column <{0}>".format(required))
             quantity = u.Quantity(data.data[required])
             if quantity.unit.is_unity() and not unit.is_unity():
                 quantity *= unit
@@ -81,7 +109,8 @@ class Runner(object):
             setattr(self, required, quantity)
 
         # sanity checks on parameters
-        assert isinstance(parameters, Parameters), "'parameters' must be instance of {0}".format(Parameters.__module__)
+        if not isinstance(parameters, Parameters):
+            raise IOError("'parameters' must be instance of {0}".format(Parameters.__module__))
         self.parameters = parameters
 
         missing = set(self.MODEL_PARAMETERS).difference(self.parameters)
@@ -92,70 +121,53 @@ class Runner(object):
         if unused:
             logger.warning("Superfluous parameter(s) provided: '{0}'".format(unused))
 
-        # check consistency of provided background population
-        self.background = background
-        if self.background:
-            assert isinstance(
-                background, (SingleStars, Gaussian)), "'background' must be an instance of a Background class."
-            if 'pmember' not in self.data.data.columns:
-                logger.error('Inclusion of background population requires prior probabilities for membership.')
-            self.lnlike_background = self.background(self.v, self.verr)
-            self.pmember = data.data['pmember']
-        else:
-            self.lnlike_background = None
-            self.pmember = None
-
     @classmethod
-    def default_parameters(cls):
+    def default_parameters(cls) -> Parameters:
+        """
+        :return: The default parameters for this class.
+        """
         if cls.parameters_file is None:
             raise NotImplementedError
 
         return Parameters().load(open(cls.parameters_file))
 
     @property
-    def n_data(self):
+    def n_data(self) -> int:
         """
-        Returns the number of data points in the instance.
+        :return: The number of data points in the instance.
         """
         return self.data.sample_size
 
     @property
-    def fitted_parameters(self):
+    def fitted_parameters(self) -> list:
         """
-        Returns the names of the fitted parameters.
+        :return: The names of the fitted parameters.
         """
         return [p for p in self.parameters if not self.parameters[p].fixed]
 
     @property
     def n_fitted_parameters(self):
         """
-        Returns the number of fitted parameters
+        :return: The number of fitted parameters
         """
         return len(self.fitted_parameters)
 
     @property
-    def units(self):
+    def units(self) -> dict:
         """
-        Returns the units of the fitted parameters
+        :return: The units of the fitted parameters
         """
         return {p: self.parameters[p].unit for p in self.parameters}
 
-    def fetch_parameter_values(self, values):
+    def fetch_parameter_values(self, values: np.ndarray) -> dict:
         """
-        Collects the current model parameters (fixed or considered for
-        optimization) and stores them in a dictionary.
+        Collect all current model parameters (fixed or considered for
+        optimization) and store them in a dictionary.
 
-        Parameters
-        ----------
-        values : array_like
-            The current values of the model parameters considered for
-            optimization.
+        :param values: The current values of the model parameters.
 
-        Returns
-        -------
-        current_parameters : dict
-            A dictionary containing one value per model parameter, regardless
-            of whether the parameter is fixed or not.
+        :return: A dictionary containing one value per model parameter,
+            regardless of whether the parameter is fixed or not.
         """
         current_parameters = {}
 
@@ -179,25 +191,35 @@ class Runner(object):
 
         return current_parameters
 
-    def lnprior(self, values, parameters_to_ignore=None):
+    def calculate_model_moments(self, **kwargs) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Given a set of parameters, the method calculates the predicted first
+        and second order moments of the target population.
+
+        This method is a mere place-holder and should be overwritten by
+        classes inheriting from `Runner()`.
+
+        :param kwargs: This method does not accept any additional keyword
+            arguments.
+        :return: The first-order moments predicted for the target population.
+        :return: The second-order moments predicted for the target population.
+        """
+        if kwargs:
+            raise IOError('Unknown parameter(s) provided to calculate_model_moments: {0}'.format(kwargs.keys))
+        return np.empty(self.n_data), np.empty(self.n_data)
+
+    def lnprior(self, values: np.ndarray, parameters_to_ignore: list = None) -> float:
         """
         Checks if the priors on the parameters are fulfilled.
 
-        Parameters
-        ----------
-        values : array_like
-            The current values of the model parameters.
-        parameters_to_ignore : array_like
-            In case the `fetch_parameters` method calculates any additional
-            parameters not included in the Parameters() instance provided upon
-            class initialization, those parameters should be provided as a
-            list.
+        :param values: The current values of the model parameters.
+        :param parameters_to_ignore: In case the `fetch_parameters` method
+            calculates any additional parameters not included in the
+            Parameters() instance provided upon class initialization, those
+            parameters should be provided as a list.
 
-        Returns
-        -------
-        lnlike : float
-            The negative log-likelihood corresponding to the priors. For
-            uninformative priors, this is zero is the values are within their
+        :return: The negative log-likelihood corresponding to the priors. For
+            uninformative priors, this is zero if the values are within their
             defined limits and -inf otherwise.
         """
         if parameters_to_ignore is None:
@@ -216,52 +238,71 @@ class Runner(object):
                 return -np.inf
         return lnlike
 
-    def lnlike(self, values):
+    def lnlike(self, values: np.ndarray) -> float:
         """
         Calculates the likelihood of the model given the data without
         considering the priors.
 
-        This method is a mere place-holder and should be overwritten by
-        classes inheriting from Runner.
+        It is assumed that the distribution follows a Gaussian distribution.
+        Therefore, the probability $p_i$ of a single measurement ($v_i$,
+        $\\epsilon_{v,i}) is estimated as:
 
-        Parameters
-        ----------
-        values : array_like
-            The current values of the model parameters.
+        $$
+        p_i = \\exp(-(v_i - v_{\\rm SYS})^2 / (2(\\sigma^2 +
+            \\epsilon_{{\\rm v},i}^2))) / (2(\\sigma^2 +
+            \\epsilon_{{\\rm v}, i}^2))^{0.5}
+        $$
 
-        Returns
-        -------
-        lnlike : float
-            The negative log likelihood of the model given the data before
-            taking into account the priors.
+        Then the log likelihood of the model is then determined by multiplying
+        the probabilities of all measurements and taking the natural
+        logarithm, resulting in
+
+        $$
+        \\ln L = \\sum_{i=0}^N -(v_i - v_{\\rm SYS})^2 / (2(\\sigma^2 +
+            \\epsilon_{{\\rm v},i}^2)) + \\sum_{i=0}^N -0.5\\ln(2(\\sigma^2 +
+            \\epsilon_{{\\rm v}, i}^2))
+        $$
+
+        In case that a background component is included, the $\\ln$
+        probability of each measurement is given as
+
+        $$
+        \\ln p_i = \\ln(m_i p_{i, {\\rm pop}} + (1 - m_i) p_{i, {\\rm back}}).
+        $$
+
+        Here, $m_i$ is the membership prior of the star in question and
+        $p_{i, {\\rm pop}}$ and $p_{i, {\\rm back}}$ are the probabilities
+        derived for the population and background models, respectively.
+
+        *Note* that when adding the probabilities of the population and
+        background models, the exponential may result in an underflow. In
+        order to avoid this, we follow the suggestion provided
+        [here](https://stats.stackexchange.com/questions/142254/).
+
+        :param values: The current values of the model parameters.
+
+        :return: The negative log likelihood of the model given the data
+            before taking into account the priors.
         """
-        return 0
+        # Convert parameter values to dictionary
+        parameters = self.fetch_parameter_values(values)
 
-    def _calculate_lnlike(self, v_los, sigma_los):
-        """
-        Direct calculation of the log-likelihood from model predictions of the
-        line-of-sight velocity and velocity dispersion at each available data
-        point.
+        # if needed split parameters into model and background components
+        background_parameters = {}
+        if self.background is not None:
+            for bp in self.background_parameters:
+                background_parameters[bp] = parameters.pop(bp)
+            f_back = parameters.pop('f_back')
+        else:
+            f_back = 0
 
-        Parameters
-        ----------
-        v_los : array_like
-            The predictions for the line-of-sight-velocity. The length of the
-            array must match the number of available velocity measurements.
-        sigma_los : array_like
-            The predictions for the velocity dispersion. The length of the
-            array must match the number of available velocity measurements.
+        v_target, sigma_target = self.calculate_model_moments(**parameters)
 
-        Returns
-        -------
-        lnlike : float
-            The log-likelihood after summation over all data points.
-        """
         # initial definitions to facilitate lnlike calculation
-        norm = self.verr * self.verr + sigma_los * sigma_los
-        exponent = -0.5*np.power(self.v - v_los, 2)/norm
+        norm = self.verr * self.verr + sigma_target * sigma_target
+        exponent = -0.5*np.power(self.v - v_target, 2)/norm
 
-        if self.background is None:
+        if self.background is None and self.lnlike_background is None:
             # in cases without a background population, the log likelihood is
             # SUM_{i=1}^N LN[EXP(-0.5*(v_i - v_los)^2/(verr_i + sigma_los)^2) / SQRT(2.*PI*(verr_i + sigma_los)^2)]
             # = SUM_{i=1}^{N} -0.5*(v_i - v_los)^2/(verr_i + sigma_los)^2 \
@@ -279,25 +320,30 @@ class Runner(object):
             # the final log likelihood.
             lnlike_member = -0.5*np.log(2. * np.pi * norm.value) + exponent
 
-            max_lnlike = np.max([lnlike_member, self.lnlike_background], axis=0)
-            lnlike = max_lnlike + np.log(self.pmember*np.exp(lnlike_member - max_lnlike) + (
-                    1. - self.pmember)*np.exp(self.lnlike_background - max_lnlike))
+            if self.background is not None:
+                v_back, sigma_back = self.background(**background_parameters)
+                norm_back = self.verr * self.verr + sigma_back * sigma_back
+                exponent_back = -0.5 * np.power(self.v - v_back, 2) / norm_back
+                lnlike_background = -0.5*np.log(2. * np.pi * norm_back.value) + exponent_back
+            else:
+                lnlike_background = self.lnlike_background
+
+            # get membership priors
+            m = self.density / (self.density + f_back)
+
+            max_lnlike = np.max([lnlike_member, lnlike_background], axis=0)
+            lnlike = max_lnlike + np.log(m*np.exp(lnlike_member - max_lnlike) + (1. - m)*np.exp(
+                lnlike_background - max_lnlike))
 
             return lnlike.sum()
 
-    def lnprob(self, values):
+    def lnprob(self, values: np.ndarray) -> float:
         """
         Calculates the likelihood of the current model including the priors.
 
-        Parameters
-        ----------
-        values : array_like
-            The current values of the model parameters.
+        :param values: The current values of the model parameters.
 
-        Returns
-        -------
-        lnlike : float
-            The negative log likelihood of the model given the data after
+        :return: The negative log likelihood of the model given the data after
             taking into account the priors.
         """
         lp = self.lnprior(values)
@@ -305,19 +351,14 @@ class Runner(object):
             return -np.inf
         return self.lnlike(values) + lp
 
-    def get_initials(self, n_walkers):
+    def get_initials(self, n_walkers: int) -> np.ndarray:
         """
         Create initial values for the MCMC chains.
 
-        Parameters
-        ----------
-        n_walkers : int
-            The number of walkers for which initial guesses should be created.
+        :param n_walkers: The number of walkers for which initial guesses
+            should be created.
 
-        Returns
-        -------
-        initials : ndarray
-            The initial guesses for the requested number of chains.
+        :return: The initial guesses for the requested number of chains.
         """
         initials = np.zeros((n_walkers, self.n_fitted_parameters))
         i = 0
@@ -329,48 +370,35 @@ class Runner(object):
             i += 1
         return initials
 
-    def __call__(self, n_walkers=100, n_steps=500, n_burn=100, n_threads=1, n_out=None, pos=None, lnprob0=None,
-                 plot=False, prefix='sampler', true_values=None, **kwargs):
+    def __call__(self, n_walkers: int = 100, n_steps: int = 500, n_burn: int = 100, n_threads: int = 1,
+                 n_out: int = None, pos: np.ndarray = None, lnprob0: np.ndarray = None, plot: bool = False,
+                 prefix: str = 'sampler', true_values: list = None, **kwargs) -> emcee.EnsembleSampler:
         """
-        Determine the intrinsic parameters of the velocity distribution.
+        Use an MCMC approach to determine the intrinsic parameters of the
+        model for the velocity distribution.
 
-        Parameters
-        ----------
-        n_walkers : int, optional
-            The number of walkers used for the MCMC analysis.
-        n_steps : int, optional
-            The number of steps that is performed by each walker.
-        n_burn : int, optional
-            Number of steps ignored at the start of each chain when getting
-            results from chains.
-        n_threads : int, optional
-            The number of threads used to run the MCMC sampler.
-        n_out : int, optional
-            Number of steps after which the progress of the walkers will be
-            saved.
-        pos : nd_array, optional
-            Initial values for the walkers. If provided, must be a 2D array
-            with shape (n_walkers, n_parameters).
-        lnprob0 : nd_array, optional
-            The list of log posterior probabilities for the walkers at
-            positions given by pos. If lnprob is None, the initial
-            values are calculated. It should have the shape (n_walkers,
-            n_parameters).
-        plot : bool, optional
-            Flag indicating if a plot showing the progress of the walkers at
-            every n_out'th step should be created.
-        prefix : str, optional
-            Common prefix for names of output files produced by the code.
-        true_values : array_like, optional
-            A list containing the actual parameter values. If provided, each
-            value will be displayed as a horizontal line when plotting the
-            status of the chains. Only has an effect if the plot parameter is
-            enabled.
-
-        Returns
-        -------
-        sampler : emcee.EnsembleSampler
-            The instance in which the MCMC walkers operate. Check the
+        :param n_walkers: The number of walkers used for the MCMC analysis.
+        :param n_steps: The number of steps that is performed by each walker.
+        :param n_burn: Number of steps ignored at the start of each chain when
+            getting results from chains.
+        :param n_threads: The number of threads used to run the MCMC sampler.
+        :param n_out: Number of steps after which the progress of the walkers
+            will be saved.
+        :param pos: Initial values for the walkers. If provided, must be a 2D
+            array with shape (`n_walkers`, `n_parameters`).
+        :param lnprob0: The list of log posterior probabilities for the
+            walkers at positions given by pos. If lnprob is None, the initial
+            values are calculated. It should have the shape (`n_walkers`,
+            `n_parameters`).
+        :param plot: Flag indicating if a plot showing the progress of the
+            walkers at every n_out'th step should be created.
+        :param prefix: Common prefix for names of output files produced by
+            the code.
+        :param true_values: A list containing the actual parameter values. If
+            provided, each value will be displayed as a horizontal line when
+            plotting the status of the chains. Only has an effect if the plot
+            parameter is enabled.
+        :return: The instance in which the MCMC walkers operate. Check the
             documentation of emcee.EnsembleSampler for further details.
         """
         if kwargs:
@@ -455,18 +483,14 @@ class Runner(object):
         Runner.save_current_status(sampler, prefix=prefix)
 
     @staticmethod
-    def save_current_status(sampler, prefix="sampler"):
+    def save_current_status(sampler: emcee.EnsembleSampler, prefix: str = "sampler"):
         """
-        Saves the current chain and the log-probabilities to two separate
+        Save the current chain and the log-probabilities to two separate
         files after pickling them.
 
-        Parameters
-        ----------
-        sampler : emcee.EnsembleSampler
-            The instance in which the MCMC walkers operate.
-        prefix : str, optional
-            The common name prefix of the files used to store the pickled
-            chains and log-probabilities.
+        :param sampler: The instance in which the MCMC walkers operate.
+        :param prefix : The common name prefix of the files used to store the
+            pickled chains and log-probabilities.
         """
         samples = sampler.chain
         lnprob = sampler.lnprobability
@@ -477,39 +501,25 @@ class Runner(object):
             pickle.dump(lnprob, f)
 
     @staticmethod
-    def read_chain(filename="samplerchain.pkl"):
+    def read_chain(filename: str = "samplerchain.pkl") -> np.ndarray:
         """
-        Method to recover the complete chain from a previously pickled
-        sampler.
+        Recover the complete chain from a previously pickled sampler.
 
-        Parameters
-        ----------
-        filename : str, optional
-            The name of the file used to store the pickled sampler state.
-
-        Returns
-        -------
-        last : ndarray
-            The values sampled by the pickled chain.
+        :param filename: The name of the file used to store the pickled
+            sampler state.
+        :return: The values sampled by the pickled chain.
         """
         file_object = open(filename, 'rb')
         return pickle.load(file_object)
 
     @staticmethod
-    def read_final_chain(filename="restart.plk"):
+    def read_final_chain(filename: str = "restart.plk") -> np.ndarray:
         """
-        Method to recover the final step of the chain from a previously
-        pickled sampler.
+        Recover the final step of the chain from a previously pickled sampler.
 
-        Parameters
-        ----------
-        filename : str, optional
-            The name of the file used to store the pickled sampler state.
-
-        Returns
-        -------
-        last : ndarray
-            The values sampled by the pickled chain in the final step.
+        :param filename : The name of the file used to store the pickled
+            sampler state.
+        :return: The values sampled by the pickled chain in the final step.
         """
         file_object = open(filename, 'rb')
         chain = pickle.load(file_object)
@@ -518,25 +528,17 @@ class Runner(object):
         last = chain[:, -1, :]
         return last
 
-    def convert_to_parameters(self, chain, n_burn):
+    def convert_to_parameters(self, chain: np.ndarray, n_burn: int) -> dict:
         """
-        Converts the parameters values stored in the MCMC chain into a
+        Convert the parameters values stored in the MCMC chain into a
         dictionary containing one entry per parameter.
 
-        Parameters
-        ----------
-        chain : ndarray
-            The chain returned by the MCMC analysis
-        n_burn : int
-            The number of steps at the beginning of the chain discarded as
-            burn-in.
+        :param chain: The chain returned by the MCMC analysis
+        :param n_burn: The number of steps at the beginning of the chain
+            discarded as burn-in.
 
-        Returns
-        -------
-        pars : dict
-            The model parameters sampled by the chain as a dictionary.
+        :return: The model parameters sampled by the chain as a dictionary.
         """
-
         pars = {}
         n_samples = chain.shape[0]*(chain.shape[1] - n_burn)
 
@@ -563,28 +565,19 @@ class Runner(object):
 
         return pars
 
-    def compute_percentiles(self, chain, n_burn, pct=None):
+    def compute_percentiles(self, chain: np.ndarray, n_burn: int, pct: list = None) -> np.ndarray:
         """
-        This method determines the requested percentiles of the parameter
-        distributions obtained by the MCMC walkers.
+        Determine the requested percentiles of the parameter distributions
+        obtained by the MCMC walkers.
 
-        Parameters
-        ----------
-        chain : ndarray
-            The chains produced by the MCMC sampler. They should be provided
-            as a 3D array, containing the parameters as first index, the steps
-            as second index, and the walkers as third index.
-        n_burn : int
-            The number of steps to be omitted from the calculation at the
-            start of each MCMC walker.
-        pct : array_like, optional
-            The percentiles to be computed. The default is to compute the
-            16th, 50th, and 84th percentile for each parameter.
-
-        Returns
-        -------
-        percentiles : array_like
-            The requested percentiles for each of the fitted parameters.
+        :param chain: The chains produced by the MCMC sampler. They should be
+            provided as a 3D array, containing the parameters as first index,
+            the steps as second index, and the walkers as third index.
+        :param n_burn: The number of steps to be omitted from the calculation
+            at the start of each MCMC walker.
+        :param pct: The percentiles to be computed. The default is to compute
+            the 16th, 50th, and 84th percentile for each parameter.
+        :return: The requested percentiles for each of the fitted parameters.
         """
         if pct is None:
             pct = [16, 50, 84]
@@ -612,30 +605,23 @@ class Runner(object):
         # else:
         return np.percentile(_samples, pct, axis=0)
 
-    def compute_bestfit_values(self, chain, n_burn):
+    def compute_bestfit_values(self, chain: np.ndarray, n_burn: int) -> QTable:
         """
-        This method obtains estimates for the median values and the upper and
-        lower limits of the uncertainty interval of each model parameter.
+        Obtain estimates for the median values and the upper and lower limits
+        of the uncertainty interval of each model parameter.
 
         This is done by first determining the 16%, 50%, and 86% percentiles
         from the distributions returned by the MCMC chains. The uncertainties
         are then estimated as p[86%] - p[50%]  and p[50%] - p[16%]
 
-        Parameters
-        ----------
-        chain : ndarray
-            The chains produced by the MCMC sampler. They should be provided
-            as a 3D array, containing the parameters as first index, the steps
-            as second index, and the walkers as third index.
-        n_burn : int
-            The number of steps to be omitted from the calculation at the
-            start of each MCMC walker.
+        :param chain: The chains produced by the MCMC sampler. They should be
+            provided as a 3D array, containing the parameters as first index,
+            the steps as second index, and the walkers as third index.
+        :param n_burn: The number of steps to be omitted from the calculation
+            at the start of each MCMC walker.
 
-        Returns
-        -------
-        result : astropy Table
-            The median value and the upper and lower uncertainty for each of
-            the fitted parameters. One column per parameter.
+        :return: The median value and the upper and lower uncertainty for each
+            of the fitted parameters. One column per parameter.
         """
         percentiles = self.compute_percentiles(chain, n_burn=n_burn, pct=[16, 50, 84])
 
@@ -660,10 +646,10 @@ class Runner(object):
         return results
 
     @property
-    def labels(self):
+    def labels(self) -> list:
         """
-        Returns the labels used to indicate the fitted parameters in plots
-        that illustrate the results/status of the sampler.
+        :return: The labels used to indicate the fitted parameters in plots
+            that illustrate the results/status of the sampler.
         """
         # recover parameters that have been fitted and their labels
         labels = []
@@ -672,7 +658,8 @@ class Runner(object):
                 labels.append(parameter.label)
         return labels
 
-    def plot_chain(self, chain, filename='chains.png', true_values=None, figure=None, lnprob=None, plot_median=False):
+    def plot_chain(self, chain: np.ndarray, filename: str = 'chains.png', true_values: list = None,
+                   figure: Figure = None, lnprob: np.ndarray = None, plot_median: bool = False) -> Figure:
         """
         Create a plot showing the current status of the MCMC chains.
 
@@ -680,32 +667,20 @@ class Runner(object):
         value of the parameter as a function of the step of each of the MCMC
         chains.
 
-        Parameters
-        ----------
-        chain : ndarray
-            The chains produced by the MCMC sampler. They should be provided
-            as a 3D array, containing the parameters as first index, the steps
-            as second index, and the walkers as third index.
-        filename : str, optional
-            Filename used to store the final plot.
-        true_values : array_like, optional
-            A list containing the actual parameter values. If provided, each
-            value will be displayed as a horizontal line.
-        figure : matplotlib.pyplot.figure.Figure, optional
-            The figure instance used as canvas of the plot. If provided, it
-            must contain as may axes/subplots as free parameters.
-        lnprob : ndarray, optional
-            Array containing the log probabilities of the models sampled by
-            the chain. If provided, they are used to color-code the chains
-            according to their likelihoods. Its shape must match that of the
-            last two axes of the chain.
-        plot_median : bool, optional
-            Overplot median of each distribution?
-
-        Returns
-        -------
-        figure : matplotlib.figure.Figure
-            The figure instance prepared by the method.
+        :param chain: The chains produced by the MCMC sampler. They should be
+            provided as a 3D array, containing the parameters as first index,
+            the steps as second index, and the walkers as third index.
+        :param filename: Filename used to store the final plot.
+        :param true_values: A list containing the actual parameter values. If
+            provided, each value will be displayed as a horizontal line.
+        :param figure: The figure instance used as canvas of the plot. If
+            provided, it must contain as may axes/subplots as free parameters.
+        :param lnprob: Array containing the log probabilities of the models
+            sampled by the chain. If provided, they are used to color-code the
+            chains according to their likelihoods. Its shape must match that
+            of the last two axes of the chain.
+        :param plot_median: Overplot median of each distribution?
+        :return: The figure instance prepared by the method.
         """
         # if figure instance provided, check that it comes with correct number of subplots
         if figure is not None:
@@ -764,30 +739,20 @@ class Runner(object):
 
         return figure
 
-    def create_triangle_plot(self, chain, n_burn, filename='corner.png', **kwargs):
+    def create_triangle_plot(self, chain: np.ndarray, n_burn: int, filename: str = 'corner.png', **kwargs) -> Figure:
         """
         Create a triangle plot showing 1D and 2D distributions of the values
         sampled by the MCMC walkers.
 
-        Parameters
-        ----------
-        chain : ndarray
-            The chains produced by the MCMC sampler. They should be provided
-            as a 3D array, containing the parameters as first index, the steps
-            as second index, and the walkers as third index.
-        n_burn : int
-            The number of steps that is neglected ('burned') at the beginning
-            of each walker.
-        filename : str, optional
-            Filename used to store the final plot.
-        kwargs
-            Any remaining keyword arguments are sent to corner.corner which is
-            used to create the actual plot.
-
-        Returns
-        -------
-        corner_plot : matplotlib.figure.Figure
-           The Figure instance prepared by the method.
+        :param chain: The chains produced by the MCMC sampler. They should be
+            provided as a 3D array, containing the parameters as first index,
+            the steps as second index, and the walkers as third index.
+        :param n_burn: The number of steps that is neglected ('burned') at the
+            beginning of each walker.
+        :param filename: Filename used to store the final plot.
+        :param kwargs: Any remaining keyword arguments are sent to the call of
+            corner which is used to create the actual plot.
+        :return: The Figure instance prepared by the method.
         """
         samples = np.copy(chain)[:, n_burn:, :].reshape((-1, self.n_fitted_parameters))
 
@@ -817,27 +782,17 @@ class Runner(object):
 
         return corner_plot
 
-    def sample_chain(self, chain, n_burn, n_samples=1):
+    def sample_chain(self, chain: np.ndarray, n_burn: int, n_samples: int = 1) -> list:
         """
-        The method returns the requested number of samples from the provided
-        chain.
+        Return the requested number of samples from the provided chain.
 
-        Parameters
-        ----------
-        chain : ndarray
-            The chains produced by the MCMC sampler. They should be provided
-            as a 3D array, containing the parameters as first index, the steps
-            as second index, and the walkers as third index.
-        n_burn : int
-            The number of steps that is neglected ('burned') at the beginning
-            of each walker.
-        n_samples : int
-            The number of samples that should be returned.
-
-        Returns
-        -------
-        samples : list of dicts.
-            The parameter combinations randomly selected from the chain.
+        :param chain: The chains produced by the MCMC sampler. They should be
+            provided as a 3D array, containing the parameters as first index,
+            the steps as second index, and the walkers as third index.
+        :param n_burn: The number of steps that is neglected ('burned') at the
+            beginning of each walker.
+        :param n_samples: The number of samples that should be returned.
+        :return: The parameter combinations randomly selected from the chain.
         """
         # select parameter sets randomly from provided chain
         _parameters = np.reshape(chain[:, n_burn:], (-1, chain.shape[-1]))

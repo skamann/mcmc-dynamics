@@ -26,6 +26,7 @@ release = '0.2'
 
 
 # -- General configuration ---------------------------------------------------
+source_suffix = [".rst", ".md"]
 
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
@@ -33,8 +34,32 @@ release = '0.2'
 extensions = [
     'sphinx.ext.todo',
     'sphinx.ext.viewcode',
-    'sphinx.ext.autodoc'
+    'autodoc2',
+    'myst_parser'
 ]
+
+myst_enable_extensions = ['amsmath',
+                          'dollarmath',
+                          'colon_fence',
+                          'deflist',
+                          'fieldlist'  # required for formatting of function parameters, see https://sphinx-autodoc2.\
+                                       # readthedocs.io/en/latest/quickstart.html#using-markdown-myst-docstrings
+                          ]
+
+autodoc2_packages = [
+    {'path': '../mcmc_dynamics', 'auto_mode': True},
+]
+
+autodoc2_render_plugin = 'myst'
+
+# autodoc2_docstring_parser_regexes = [
+#     this will render all docstrings as Markdown
+#     (r".*", "myst"),
+#     # this will render select docstrings as Markdown
+#     # (r"mypackage\.mymodule\..*", "myst"),
+# ]
+
+autodoc2_hidden_objects = ['inherited', 'undoc']
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']

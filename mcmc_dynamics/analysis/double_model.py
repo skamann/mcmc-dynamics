@@ -215,7 +215,7 @@ class DoubleModelFit(ModelFit):
 
         return initials
 
-    def create_profiles(self, chains, n_burn, filename=None):
+    def create_profiles(self, chain, n_burn, filename=None):
         """
         Converts the parameter distributions returned by the MCMC analysis
         into radial profiles of the rotation amplitude and velocity
@@ -223,7 +223,7 @@ class DoubleModelFit(ModelFit):
 
         Parameters
         ----------
-        chains : ndarray
+        chain : ndarray
             The chains produced by the MCMC sampler. They should be provided
             as a 3D array, containing the parameters as first index, the steps
             as second index, and the chains as third index.
@@ -245,7 +245,7 @@ class DoubleModelFit(ModelFit):
             if row['fixed']:
                 fitted_models[row['name']] = row['init']
             else:
-                fitted_models[row['name']] = chains[:, n_burn:, i].flatten()*row['init'].unit
+                fitted_models[row['name']] = chain[:, n_burn:, i].flatten() * row['init'].unit
                 i += 1
 
         v_maxx = fitted_models['v_maxx']

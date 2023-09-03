@@ -16,7 +16,7 @@ def get_amplitude_and_angle(pars, return_samples=False):
     elif 'v_maxy' not in pars and 'theta_0' in pars and 'v_maxx' in pars:
         pars['v_maxy'] = pars['v_maxx'] / np.tan(pars['theta_0'])
 
-    for par in['theta_0', 'v_maxx', 'v_maxy']:
+    for par in ['theta_0', 'v_maxx', 'v_maxy']:
         if par not in pars:
             logger.error('Failed to recover parameter {}.'.format(par))
             return None, None, None

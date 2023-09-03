@@ -1,28 +1,63 @@
 import logging
 import numpy as np
-from astropy import units as u
+try:
+    from importlib.resources import files
+except ImportError:  # for Python v<3.9
+    from importlib_resources import files
+
+from .background import Background
+from .. import config
 
 
 logger = logging.getLogger(__name__)
 
 
-class Gaussian(object):
+class Gaussian(Background):
+    """
+    Use a Gaussian velocity distribution to model the background.
+    """
+    parameters_file = files(config).joinpath('gaussian_background.json')
 
-    def __init__(self, mean, sigma):
+    @staticmethod
+    def lnlike(v: np.ndarray, verr: np.ndarray, v_back: float, sigma_back: float) -> np.ndarray:
+        """
+        Calculate the log-likelihood for a fixed set of model parameters and
+        observed velocities.
 
-        self.mean = u.Quantity(mean)
-        if self.mean.unit.is_unity():
-            self.mean *= u.km/u.s
-            logger.warning('Missing units for parameter <mean>. Assuming {0}.'.format(self.mean.unit))
+        :param v: The observed velocities.
+        :param verr: The uncertainties of the observed velocities
+        :param v_back: The mean of the Gaussian velocity distribution model.
+        :param sigma_back: The standard deviation of the Gaussian velocity
+            distribution model.
+        :return: The log-likelihoods for the provided velocity observations.
+        """
 
-        self.sigma = u.Quantity(sigma)
-        if self.sigma.unit.is_unity():
-            self.sigma *= u.km/u.s
-            logger.warning('Missing units for parameter <sigma>. Assuming {0}.'.format(self.sigma.unit))
-
-    def __call__(self, v, verr):
-
-        norm = verr * verr + self.sigma * self.sigma
-        exponent = -0.5 * np.power(v - self.mean, 2) / norm
+        norm = verr * verr + sigma_back * sigma_back
+        exponent = -0.5 * np.power(v - v_back, 2) / norm
 
         return -0.5 * np.log(2. * np.pi * norm.value) + exponent
+
+    def __call__(self, v_back: float, sigma_back: float, **kwargs) -> tuple[float, float]:
+        """
+        This method can be provided as `background` parameter when
+        initializing a new instance of `Runner()`.
+
+        The method takes the current values of the background parameters as
+        input and uses them to compute the first and second order moments
+        of the background velocity distribution at the locations of the stars.
+        In this case with constant mean and dispersion, input and output
+        values are the same.
+
+        :param v_back: The mean of the Gaussian velocity distribution model.
+        :param sigma_back: The standard deviation of the Gaussian velocity
+            distribution model.
+        :param kwargs: This method does not accept any additional keyword
+            arguments
+        :return: The mean of the Gaussian velocity distribution model at the
+            locations of the stars.
+        :return: The standard deviation of the Gaussian velocity distribution
+            model at the locations of the stars.
+        """
+        if kwargs:
+            raise IOError(f'Unknown parameters {kwargs} provided when evaluating Gaussian() background.')
+        return v_back, sigma_back

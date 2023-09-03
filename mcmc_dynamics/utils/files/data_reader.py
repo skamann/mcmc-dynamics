@@ -1,5 +1,6 @@
 import logging
 import numpy as np
+from astropy import units as u
 from astropy.table import QTable
 from ..coordinates import calc_xy_offset
 
@@ -8,91 +9,80 @@ logger = logging.getLogger(__name__)
 
 
 class DataReader(object):
+    """
+    DataReader provides a framework for reading and processing a set of
+    observed data.
+    """
 
     def __init__(self, data, **kwargs):
         """
         Initialize a new instance of the DataReader class.
 
-        Parameters
-        ----------
-        data : numpy ndarray, dict, list, Table, or table-like object, optional
-            Data to initialize the instance.
-        kwargs
-            Any additional arguments are passed on to the initialization of
-            astropy.table.Table which is used to process the input data.
-
-        Returns
-        -------
-        The newly created instance.
+        :param data: The data used to initialize the instance. Can be any
+            format compatible with an astropy QTable.
+        :param kwargs: Any additional arguments are passed on to the
+            initialization of astropy.table.QTable which is used to process
+            the input data.
         """
         self.data = QTable(data, **kwargs)
 
     @property
-    def sample_size(self):
+    def sample_size(self) -> int:
+        """
+        :return: The number of measurements.
+        """
         return len(self.data)
 
     @property
-    def has_ra(self):
+    def has_ra(self) -> bool:
+        """
+        :return: Flag indicating if right ascension coordinates are available.
+        """
         return 'ra' in self.data.columns
 
     @property
-    def has_dec(self):
+    def has_dec(self) -> bool:
+        """
+        :return: Flag indicating if declination coordinates are available.
+        """
         return 'dec' in self.data.columns
 
     @property
-    def has_coordinates(self):
+    def has_coordinates(self) -> bool:
+        """
+        :return: Flag indicating if WCS coordinates are available.
+        """
         return self.has_ra & self.has_dec
 
-
-    def compute_distances(self, ra_center, dec_center):
+    def compute_distances(self, ra_center: u.Quantity, dec_center: u.Quantity) -> u.Quantity:
         """
         Calculates and returns distances of the data points relative to a
         given reference.
 
-        Parameters
-        ----------
-        ra_center : instance of astropy.units.Quantity
-            The right ascension of the reference point.
-        dec_center : instance of astropy.unit.Quantity
-            The declination of the reference point.
-
-        Returns
-        -------
-        r : astropy.units.Quantity
-            The distance of the data points relative to the reference.
+        :param ra_center: The right ascension of the reference point.
+        :param dec_center: The declination of the reference point.
+        :return: The distance of the data points relative to the reference.
+        :raises IOError: If the instance lacks WCS coordinates.
         """
         if not self.has_coordinates:
-            logger.error('Cannot calculate distances as world coordinates are missing.')
-            return
+            raise IOError('Cannot calculate distances as world coordinates are missing.')
 
         x, y = calc_xy_offset(self.data['ra'], self.data['dec'], ra_center, dec_center)
         return np.sqrt(x**2 + y**2)
 
-    def make_radial_bins(self, ra_center, dec_center, nstars=50, dlogr=0.2):
+    def make_radial_bins(self, ra_center: u.Quantity, dec_center: u.Quantity, nstars: int = 50,
+                         dlogr: float = 0.2):
         """
         Create radial bins relative to the provided center.
 
-        Parameters
-        ----------
-        ra_center : instance of astropy.units.Quantity
-            The right ascension of the center around which to create the
-            radial bins.
-        dec_center : instance of astropy.units.Quantity
-            The declination of the center around which to create the radial
-            bins.
-        nstars : int, optional
-            The minimum number of stars per bin.
-        dlogr : float, optional
-            The minimum extent in log10(radius) that each bin covers.
-        force : bool, optional
-            Flag indicating if the radial bins should be determined
+        :param ra_center: The right ascension of the center around which to
+            create the radial bins.
+        :param dec_center: The declination of the center around which to
+            create the radial bins.
+        :param nstars: The minimum number of stars per bin.
+        :param dlogr: The minimum extent in log10(radius) that each bin covers.
         """
-        if not self.has_coordinates:
-            logger.error('Cannot create radial profile. WCS coordinates of data points unknown.')
-            return
-
-        dx, dy = calc_xy_offset(ra=self.data['ra'], dec=self.data['dec'], ra_center=ra_center, dec_center=dec_center)
-        r = np.sqrt(dx**2 + dy**2)
+        r = self.compute_distances(ra_center=ra_center, dec_center=dec_center)
 
         sorted_indices = np.argsort(r)
         r_sorted = r[sorted_indices].value
@@ -119,22 +109,18 @@ class DataReader(object):
 
         self.data['bin'] = bin_number[sorted_indices.argsort()]
 
-    def fetch_radial_bin(self, i):
+    def fetch_radial_bin(self, i: int):
         """
+        Fetch the data for an individual radial bin.
 
-        Parameters
-        ----------
-        i
-
-        Returns
-        -------
-
+        :param i: The index of the radial bin requested.
+        :return: The data for the stars in the radial bin.
+        :raises NotImplementedError: If no bins have been determined.
+        :raises IndexError: if requested bin does not exist.
         """
         if 'bin' not in self.data.columns:
-            logger.error('No information about bins available.')
-            return None
+            raise NotImplementedError('No information about bins available.')
         elif i < self.data['bin'].min() or i > self.data['bin'].max():
-            logger.error('Requested bin {0} does not exist.'.format(i))
-            return None
-
+            raise IndexError('Bin indices range from {} to {}, got {}'.format(
+                self.data['bin'].min(), self.data['bin'].max(), i))
         return self.__class__(self.data[self.data['bin'] == i])

@@ -1,3 +1,3 @@
-from .constant import ConstantFit, ConstantFitGB
-from .model import ModelFit, ModelFitGB, ModelFitConstantBackground
+from .constant import ConstantFit
+from .model import ModelFit
 from .double_model import DoubleModelFit, DoubleModelFitGB

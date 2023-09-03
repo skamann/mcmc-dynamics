@@ -128,12 +128,12 @@ class Axisymmetric(Runner):
 
     The class uses the following model parameters, which can be optimized
     during the analysis.
+
     (1) d - The distance to the system.
     (2) mlr - The global mass-to-light ratio. Note that this parameter is
-              degenerate with the distance `d` unless proper motions are
-              available.
+    degenerate with the distance `d` unless proper motions are available.
     (3) barq - The intrinsic flattening of the system, as defined in
-               Watkins et al. (2013)
+    Watkins et al. (2013)
     (4) kappa_x - The x-component of the rotation parameter.
     (5) kappa_y - The y-component of the rotation parameter.
     (6) beta - The anisotropy parameter.
@@ -222,7 +222,7 @@ class Axisymmetric(Runner):
         # make sure limits on barq are considered in Parameters instance
         _ = find_barq_limits(q_values, parameters=self.parameters)
 
-    def lnlike(self, values, return_model=False):
+    def calculate_model_moments(self, values, return_model=False, **kwargs):
 
         current_parameters = self.fetch_parameter_values(values)
         
