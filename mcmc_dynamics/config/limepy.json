@@ -1,0 +1,14 @@
+{
+  "unique_symbols": {
+    "rng_seed": null
+  },
+  "params": [
+    ["v_sys", null, "km/s", false, -Infinity, Infinity, "$v_{\\rm sys}$", "rng.normal(size=n)", null, null, null],
+    ["phi0", null, null, false, 0.0, Infinity, "$\\sigma_{\\rm max}$", "rng.lognormal(size=n)", null, null, null],
+    ["g", null, null, false, 0.0, 3.5, "$g$","rng.normal(loc=1.5, scale=0.2, size=n)", null, null, null],
+    ["rh", null, "pc", false, 0, Infinity, "$r_{\\rm h}$", "rng.lognormal(size=n)", null, null, null],
+    ["mass", null, "solMass", false, 0, Infinity, "$M_{\\rm cl}$", "rng.normal(loc=1e5, scale=0.5, size=n)", null, null, null],
+    ["ra_center", null, "deg", false, 0.0, 360.0, "$\\alpha_{\\rm c}$", null, null, null, null],
+    ["dec_center", null, "deg", false, -90.0, 90.0, "$\\delta_{\\rm c}$", null, null, null, null]
+  ]
+}

@@ -1,5 +1,6 @@
 import logging
 import numpy as np
+from enum import Enum
 from astropy.table import QTable
 from ..coordinates import calc_xy_offset
 
@@ -7,16 +8,34 @@ from ..coordinates import calc_xy_offset
 logger = logging.getLogger(__name__)
 
 
+class Observables(Enum):
+    RA = 1
+    DEC = 2
+    V = 3
+    VERR = 4
+    DENSITY = 5
+
+
 class DataReader(object):
 
-    def __init__(self, data, **kwargs):
+    default_column_names = {Observables.RA: 'ra',
+                            Observables.DEC: 'dec',
+                            Observables.V: 'v',
+                            Observables.VERR: 'verr',
+                            Observables.DENSITY: 'density'}
+
+    def __init__(self, data, column_names=None, **kwargs):
         """
         Initialize a new instance of the DataReader class.
 
         Parameters
         ----------
-        data : numpy ndarray, dict, list, Table, or table-like object, optional
+        data : numpy ndarray, dict, list, Table, or table-like object
             Data to initialize the instance.
+        column_names : dict, optional
+            The names of the columns in which the observables are stored.
+            Note that the keys should be symbolic names available in the
+            `Observables` Enum-class.
         kwargs
             Any additional arguments are passed on to the initialization of
             astropy.table.Table which is used to process the input data.
@@ -26,6 +45,9 @@ class DataReader(object):
         The newly created instance.
         """
         self.data = QTable(data, **kwargs)
+        self.column_names = column_names
+        if self.column_names is not None:
+            raise NotImplementedError
 
     @property
     def sample_size(self):
@@ -42,7 +64,6 @@ class DataReader(object):
     @property
     def has_coordinates(self):
         return self.has_ra & self.has_dec
-
 
     def compute_distances(self, ra_center, dec_center):
         """
@@ -91,7 +112,8 @@ class DataReader(object):
             logger.error('Cannot create radial profile. WCS coordinates of data points unknown.')
             return
 
-        dx, dy = calc_xy_offset(ra=self.data['ra'], dec=self.data['dec'], ra_center=ra_center, dec_center=dec_center)
+        dx, dy = calc_xy_offset(ra=self.data['ra'], dec=self.data['dec'],
+                                ra_center=ra_center, dec_center=dec_center)
         r = np.sqrt(dx**2 + dy**2)
 
         sorted_indices = np.argsort(r)
